@@ -1,5 +1,7 @@
 # Render Blueprint — https://render.com/docs/blueprint-spec
-# Connect repo root (app/) and apply this blueprint, then add secrets in the dashboard.
+# 1. Push this repo to GitHub
+# 2. Go to render.com → New → Blueprint → connect the repo
+# 3. Add the secret env vars marked sync:false in the Render dashboard
 services:
   - type: web
     name: blink-bling
@@ -13,6 +15,8 @@ services:
         value: production
       - key: SESSION_SECRET
         generateValue: true
+
+      # Supabase — add values in Render dashboard
       - key: SUPABASE_DATABASE_URL
         sync: false
       - key: SUPABASE_URL
@@ -21,3 +25,17 @@ services:
         sync: false
       - key: SUPABASE_SECRET_KEY
         sync: false
+
+      # ElevenLabs voice AI — add values in Render dashboard
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ELEVENLABS_LUNA_AGENT_ID
+        sync: false
+
+      # AI image generation — add values in Render dashboard
+      - key: OPENAI_PROVIDER
+        value: openrouter
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: black-forest-labs/flux.2-pro
