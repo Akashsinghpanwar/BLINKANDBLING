@@ -1,0 +1,299 @@
+import { Router, type IRouter } from "express";
+import { pool } from "@workspace/db";
+import { z } from "zod";
+
+const router: IRouter = Router();
+
+const createCustomerSchema = z.object({
+  fullName: z.string().min(1).max(200).trim(),
+  email: z.string().email().optional().or(z.literal("")).default(""),
+  phone: z.string().max(80).optional().default(""),
+  projectName: z.string().max(200).optional().default("Custom jewellery project"),
+});
+
+const codeLoginSchema = z.object({
+  accessCode: z.string().min(4).max(40).trim(),
+});
+
+const featureAccessSchema = z.object({
+  feature: z.enum(["overview", "luna", "designs", "gallery", "cad", "timeline", "payments"]),
+  unlocked: z.boolean(),
+});
+
+const DEFAULT_FEATURE_ACCESS = {
+  overview: true,
+  luna: true,
+  designs: true,
+  gallery: true,
+  cad: false,
+  timeline: true,
+  payments: true,
+};
+
+declare module "express-session" {
+  interface SessionData {
+    customerProjectId?: string;
+    customerAccessCode?: string;
+    customerName?: string;
+  }
+}
+
+async function ensureCustomerTables() {
+  await pool.query(`
+    create table if not exists bb_customer_workspaces (
+      id uuid primary key default gen_random_uuid(),
+      jeweller_user_id varchar(255),
+      full_name varchar(200) not null,
+      email varchar(255),
+      phone varchar(80),
+      project_name varchar(200) not null default 'Custom jewellery project',
+      access_code varchar(40) not null unique,
+      status varchar(40) not null default 'in_progress',
+      stage varchar(60) not null default 'concept_review',
+      budget varchar(120) not null default 'Not set',
+      metal_preference varchar(120) not null default 'Not set',
+      gemstone_preference varchar(120) not null default 'Not set',
+      ring_size varchar(40) not null default 'Not set',
+      timeline varchar(80) not null default 'Not set',
+      cad_unlocked boolean not null default false,
+      feature_access jsonb not null default '{"overview":true,"luna":true,"designs":true,"gallery":true,"cad":false,"timeline":true,"payments":true}'::jsonb,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now(),
+      last_access_at timestamptz
+    );
+
+    create index if not exists idx_bb_customer_workspaces_jeweller
+      on bb_customer_workspaces(jeweller_user_id, created_at desc);
+    create index if not exists idx_bb_customer_workspaces_access_code
+      on bb_customer_workspaces(access_code);
+  `);
+
+  await pool.query(`
+    alter table bb_customer_workspaces
+      add column if not exists feature_access jsonb not null default '{"overview":true,"luna":true,"designs":true,"gallery":true,"cad":false,"timeline":true,"payments":true}'::jsonb;
+  `);
+
+  await pool.query(`
+    update bb_customer_workspaces
+    set feature_access =
+      '{"overview":true,"luna":true,"designs":true,"gallery":true,"cad":false,"timeline":true,"payments":true}'::jsonb
+      || coalesce(feature_access, '{}'::jsonb)
+      || jsonb_build_object('cad', cad_unlocked)
+    where feature_access is null
+       or not (feature_access ? 'overview')
+       or not (feature_access ? 'luna')
+       or not (feature_access ? 'designs')
+       or not (feature_access ? 'gallery')
+       or not (feature_access ? 'cad')
+       or not (feature_access ? 'timeline')
+       or not (feature_access ? 'payments');
+  `);
+}
+
+function normalizeNamePrefix(name: string) {
+  const first = name.trim().split(/\s+/)[0] || "CLIENT";
+  return first.replace(/[^a-z0-9]/gi, "").toUpperCase().slice(0, 10) || "CLIENT";
+}
+
+async function generateAccessCode(name: string) {
+  const prefix = normalizeNamePrefix(name);
+  for (let i = 0; i < 20; i += 1) {
+    const code = `${prefix}${Math.floor(100000 + Math.random() * 900000)}`;
+    const { rowCount } = await pool.query("select 1 from bb_customer_workspaces where access_code = $1", [code]);
+    if (!rowCount) return code;
+  }
+  return `${prefix}${Date.now().toString().slice(-6)}`;
+}
+
+function toProject(row: any) {
+  const rowFeatureAccess = row.feature_access && typeof row.feature_access === "object" ? row.feature_access : {};
+  const featureAccess = {
+    ...DEFAULT_FEATURE_ACCESS,
+    ...rowFeatureAccess,
+    cad: Boolean(row.cad_unlocked || rowFeatureAccess.cad),
+  };
+
+  return {
+    id: row.id,
+    name: row.project_name,
+    accessCode: row.access_code,
+    customer: {
+      id: row.id,
+      name: row.full_name,
+      email: row.email || "",
+      phone: row.phone || "",
+    },
+    status: row.status,
+    stage: row.stage,
+    budget: row.budget,
+    metalPreference: row.metal_preference,
+    gemstonePreference: row.gemstone_preference,
+    ringSize: row.ring_size,
+    timeline: row.timeline,
+    cadUnlocked: featureAccess.cad,
+    featureAccess,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+router.get("/customers", async (req, res): Promise<void> => {
+  try {
+    await ensureCustomerTables();
+    const userId = req.session.userId || "demo";
+    const { rows } = await pool.query(
+      "select * from bb_customer_workspaces where jeweller_user_id = $1 order by created_at desc",
+      [userId],
+    );
+    res.json({ customers: rows.map(toProject) });
+  } catch (err) {
+    console.error("Customer list error:", err);
+    res.status(500).json({ error: "Failed to load customers" });
+  }
+});
+
+router.post("/customers", async (req, res): Promise<void> => {
+  const parsed = createCustomerSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+    return;
+  }
+
+  try {
+    await ensureCustomerTables();
+    const accessCode = await generateAccessCode(parsed.data.fullName);
+    const [projectName, fullName] = [
+      parsed.data.projectName || "Custom jewellery project",
+      parsed.data.fullName,
+    ];
+
+    const { rows } = await pool.query(
+      `
+        insert into bb_customer_workspaces(
+          jeweller_user_id, full_name, email, phone, project_name, access_code
+        )
+        values ($1, $2, $3, $4, $5, $6)
+        returning *
+      `,
+      [req.session.userId || "demo", fullName, parsed.data.email || "", parsed.data.phone || "", `${fullName} - ${projectName}`, accessCode],
+    );
+
+    res.status(201).json({ customer: toProject(rows[0]) });
+  } catch (err) {
+    console.error("Customer create error:", err);
+    res.status(500).json({ error: "Failed to create customer" });
+  }
+});
+
+router.patch("/customers/:id/access", async (req, res): Promise<void> => {
+  const parsed = featureAccessSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid feature access update", details: parsed.error.flatten() });
+    return;
+  }
+
+  try {
+    await ensureCustomerTables();
+    const userId = req.session.userId || "demo";
+    const { feature, unlocked } = parsed.data;
+    const { rows } = await pool.query(
+      `
+        update bb_customer_workspaces
+        set
+          feature_access = feature_access || jsonb_build_object($1::text, $2::boolean),
+          cad_unlocked = case when $1::text = 'cad' then $2::boolean else cad_unlocked end,
+          updated_at = now()
+        where id = $3 and jeweller_user_id = $4
+        returning *
+      `,
+      [feature, unlocked, req.params.id, userId],
+    );
+
+    if (!rows[0]) {
+      res.status(404).json({ error: "Customer workspace not found" });
+      return;
+    }
+
+    res.json({ customer: toProject(rows[0]) });
+  } catch (err) {
+    console.error("Customer access update error:", err);
+    res.status(500).json({ error: "Failed to update feature access" });
+  }
+});
+
+router.post("/auth/customer-code", async (req, res): Promise<void> => {
+  const parsed = codeLoginSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid code" });
+    return;
+  }
+
+  try {
+    await ensureCustomerTables();
+    const code = parsed.data.accessCode.toUpperCase();
+    const { rows } = await pool.query(
+      "update bb_customer_workspaces set last_access_at = now(), updated_at = now() where access_code = $1 returning *",
+      [code],
+    );
+
+    const customer = rows[0];
+    if (!customer) {
+      res.status(401).json({ error: "Invalid access code" });
+      return;
+    }
+
+    req.session.regenerate((err) => {
+      if (err) {
+        res.status(500).json({ error: "Could not establish session" });
+        return;
+      }
+      req.session.role = "customer";
+      req.session.customerProjectId = customer.id;
+      req.session.customerAccessCode = customer.access_code;
+      req.session.customerName = customer.full_name;
+      res.json({
+        id: customer.id,
+        email: customer.email || "",
+        fullName: customer.full_name,
+        role: "customer",
+        accessCode: customer.access_code,
+      });
+    });
+  } catch (err) {
+    console.error("Customer code login error:", err);
+    res.status(500).json({ error: "Code login failed" });
+  }
+});
+
+router.get("/portal/project", async (req, res): Promise<void> => {
+  try {
+    await ensureCustomerTables();
+    const projectId = req.session.customerProjectId;
+
+    if (projectId) {
+      const { rows } = await pool.query("select * from bb_customer_workspaces where id = $1 limit 1", [projectId]);
+      if (rows[0]) {
+        res.json({ project: toProject(rows[0]) });
+        return;
+      }
+    }
+
+    if (req.session.role === "jeweller") {
+      const { rows } = await pool.query(
+        "select * from bb_customer_workspaces where jeweller_user_id = $1 order by created_at desc limit 1",
+        [req.session.userId || "demo"],
+      );
+      if (rows[0]) {
+        res.json({ project: toProject(rows[0]) });
+        return;
+      }
+    }
+
+    res.status(404).json({ error: "Customer workspace not found" });
+  } catch (err) {
+    console.error("Portal project error:", err);
+    res.status(500).json({ error: "Failed to load portal project" });
+  }
+});
+
+export default router;

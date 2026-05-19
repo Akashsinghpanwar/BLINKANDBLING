@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Blink & Bling Design OS"
+version = "1.0.0"
+id = "artifacts/startupvisual"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21506
+
+[services.development]
+run = "pnpm --filter @workspace/startupvisual run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/startupvisual", "run", "build" ]
+publicDir = "artifacts/startupvisual/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21506"
+BASE_PATH = "/"
