@@ -114,13 +114,27 @@ export default function UserGallery() {
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
+  // ── localStorage fallback ──────────────────────────────────────────────
+  const LS_KEY = 'bb-uploads-v1'
+  const loadLocal = (): GalleryTile[] => {
+    try { return JSON.parse(localStorage.getItem(LS_KEY) ?? '[]') as GalleryTile[] }
+    catch { return [] }
+  }
+  const saveLocal = (tiles: GalleryTile[]) => {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(tiles)) } catch { /* ignore */ }
+  }
+
   const refreshUploads = async () => {
     try {
       const r = await fetch('/api/uploads', { credentials: 'include' })
-      if (!r.ok) return
-      const rows = await r.json() as Array<{ id: string; name: string; data_url: string }>
-      setUploadedImages(rows.map(row => ({ url: row.data_url, label: row.name })))
-    } catch { /* ignore */ }
+      if (r.ok) {
+        const rows = await r.json() as Array<{ id: string; name: string; data_url: string }>
+        const tiles = rows.map(row => ({ url: row.data_url, label: row.name }))
+        setUploadedImages(tiles)
+        return
+      }
+    } catch { /* fall through to localStorage */ }
+    setUploadedImages(loadLocal())
   }
 
   useEffect(() => {
@@ -144,20 +158,26 @@ export default function UserGallery() {
     for (const file of images) {
       try {
         const dataUrl = await readAsDataUrl(file)
-        const res = await fetch('/api/uploads', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: file.name, dataUrl, mimeType: file.type, sizeBytes: file.size }),
-        })
-        if (res.ok) {
+        // Try API first
+        let savedToApi = false
+        try {
+          const res = await fetch('/api/uploads', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: file.name, dataUrl, mimeType: file.type, sizeBytes: file.size }),
+          })
+          if (res.ok) { savedToApi = true; succeeded++ }
+        } catch { /* fall through */ }
+        // Fallback: save to localStorage
+        if (!savedToApi) {
+          const existing = loadLocal()
+          const tile: GalleryTile = { url: dataUrl, label: file.name }
+          saveLocal([...existing, tile])
           succeeded++
-        } else {
-          const err = await res.json().catch(() => ({})) as { error?: string }
-          showToast(err.error ?? `Failed to upload ${file.name}`, 'error')
         }
       } catch {
-        showToast(`Failed to upload ${file.name}`, 'error')
+        showToast(`Could not read ${file.name}`, 'error')
       }
       setUploadProgress(p => p ? { ...p, done: p.done + 1 } : null)
     }
