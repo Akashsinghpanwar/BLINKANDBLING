@@ -110,25 +110,40 @@ export default function UserGallery() {
   const [maximizedImage, setMaximizedImage] = useState<GalleryTile | null>(null)
   const [sharingFileId, setSharingFileId] = useState<string | null>(null)
   const [uploadedImages, setUploadedImages] = useState<GalleryTile[]>([])
-  const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  const refreshUploads = async () => {
+    try {
+      const r = await fetch('/api/uploads', { credentials: 'include' })
+      if (!r.ok) return
+      const rows = await r.json() as Array<{ id: string; name: string; data_url: string }>
+      setUploadedImages(rows.map(row => ({ url: row.data_url, label: row.name })))
+    } catch { /* ignore */ }
+  }
 
   useEffect(() => {
     if (activeId !== 'uploads') return
-    fetch('/api/uploads', { credentials: 'include' })
-      .then(r => r.ok ? r.json() as Promise<Array<{ id: string; name: string; data_url: string }>> : [])
-      .then(rows => setUploadedImages(rows.map(r => ({ url: r.data_url, label: r.name }))))
-      .catch(() => {})
+    void refreshUploads()
   }, [activeId])
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setUploading(true)
-    const reader = new FileReader()
-    reader.onload = async () => {
+  const readAsDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+
+  const uploadFiles = async (files: File[]) => {
+    const images = files.filter(f => f.type.startsWith('image/'))
+    if (!images.length) { showToast('Only image files are supported', 'error'); return }
+    setUploadProgress({ done: 0, total: images.length })
+    let succeeded = 0
+    for (const file of images) {
       try {
-        const dataUrl = reader.result as string
+        const dataUrl = await readAsDataUrl(file)
         const res = await fetch('/api/uploads', {
           method: 'POST',
           credentials: 'include',
@@ -136,21 +151,34 @@ export default function UserGallery() {
           body: JSON.stringify({ name: file.name, dataUrl, mimeType: file.type, sizeBytes: file.size }),
         })
         if (res.ok) {
-          const rows = await fetch('/api/uploads', { credentials: 'include' })
-            .then(r => r.json()) as Array<{ id: string; name: string; data_url: string }>
-          setUploadedImages(rows.map(r => ({ url: r.data_url, label: r.name })))
-          showToast('Image uploaded', 'success')
+          succeeded++
         } else {
-          showToast('Upload failed — file may be too large (10 MB max)', 'error')
+          const err = await res.json().catch(() => ({})) as { error?: string }
+          showToast(err.error ?? `Failed to upload ${file.name}`, 'error')
         }
       } catch {
-        showToast('Upload failed', 'error')
-      } finally {
-        setUploading(false)
-        if (fileInputRef.current) fileInputRef.current.value = ''
+        showToast(`Failed to upload ${file.name}`, 'error')
       }
+      setUploadProgress(p => p ? { ...p, done: p.done + 1 } : null)
     }
-    reader.readAsDataURL(file)
+    setUploadProgress(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    await refreshUploads()
+    if (succeeded > 0) showToast(`${succeeded} image${succeeded > 1 ? 's' : ''} uploaded`, 'success')
+  }
+
+  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? [])
+    void uploadFiles(files)
+  }
+
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true) }
+  const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false) }
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+    const files = Array.from(e.dataTransfer.files)
+    void uploadFiles(files)
   }
 
   const pinShare = (imageUrl: string, label: string) => {
@@ -290,18 +318,21 @@ export default function UserGallery() {
                     ref={fileInputRef}
                     type="file"
                     accept="image/*"
+                    multiple
                     style={{ display: 'none' }}
-                    onChange={handleFileUpload}
+                    onChange={handleFileInput}
                   />
                   <button
                     type="button"
                     className="bb-btn-primary"
-                    disabled={uploading}
+                    disabled={uploadProgress !== null}
                     onClick={() => fileInputRef.current?.click()}
                     style={{ minHeight: 36, padding: '8px 14px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 7 }}
                   >
                     <Upload size={14} />
-                    {uploading ? 'Uploading…' : 'Upload Image'}
+                    {uploadProgress
+                      ? `Uploading ${uploadProgress.done}/${uploadProgress.total}…`
+                      : 'Upload Images'}
                   </button>
                 </>
               )}
@@ -485,9 +516,46 @@ export default function UserGallery() {
               )}
             </div>
           ) : (
+          <div
+            style={{ position: 'relative' }}
+            onDragOver={activeId === 'uploads' ? handleDragOver : undefined}
+            onDragLeave={activeId === 'uploads' ? handleDragLeave : undefined}
+            onDrop={activeId === 'uploads' ? handleDrop : undefined}
+          >
+            {activeId === 'uploads' && isDragging && (
+              <div style={{
+                position: 'absolute', inset: 0, zIndex: 10,
+                borderRadius: 14, border: '2px dashed var(--bb-rose)',
+                background: 'rgba(207,95,145,0.08)',
+                display: 'grid', placeItems: 'center',
+                pointerEvents: 'none',
+              }}>
+                <div style={{ textAlign: 'center', color: 'var(--bb-rose)' }}>
+                  <Upload size={32} style={{ marginBottom: 8 }} />
+                  <strong style={{ display: 'block', fontSize: '1rem' }}>Drop images here</strong>
+                </div>
+              </div>
+            )}
+            {activeId === 'uploads' && uploadedImages.length === 0 && uploadProgress === null && (
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                style={{
+                  border: '2px dashed var(--bb-line)', borderRadius: 14,
+                  padding: '40px 20px', textAlign: 'center',
+                  color: 'var(--bb-muted)', cursor: 'pointer', marginBottom: 12,
+                  background: '#fdfcfa', transition: 'border-color 0.2s',
+                }}
+              >
+                <Upload size={28} style={{ marginBottom: 10, opacity: 0.5 }} />
+                <strong style={{ display: 'block', marginBottom: 4 }}>Drag & drop images here</strong>
+                <span style={{ fontSize: '0.82rem' }}>or click to browse — multiple images supported</span>
+              </div>
+            )}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
             {(activeId === 'uploads' && uploadedImages.length > 0
               ? uploadedImages
+              : activeId === 'uploads'
+              ? []
               : (activeAiFolder?.images || activeFolder.images)
             ).map((image, index) => (
               <motion.figure
@@ -523,11 +591,7 @@ export default function UserGallery() {
                 </figcaption>
               </motion.figure>
             ))}
-            {activeId === 'uploads' && uploadedImages.length === 0 && activeFolder.images.length === 0 && (
-              <div style={{ gridColumn: '1/-1', color: 'var(--bb-muted)', padding: 24, textAlign: 'center' }}>
-                No uploaded images yet. Click <strong>Upload Image</strong> to add your reference photos.
-              </div>
-            )}
+          </div>
           </div>
           )}
         </div>
