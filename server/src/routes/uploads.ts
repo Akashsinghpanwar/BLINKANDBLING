@@ -6,9 +6,10 @@ const router: IRouter = Router();
 let tableReady = false;
 async function ensureTable() {
   if (tableReady) return;
+  // Split into separate statements — some PG drivers reject multiple DDL in one query()
   await pool.query(`
     CREATE TABLE IF NOT EXISTS bb_uploads (
-      id VARCHAR(120) PRIMARY KEY DEFAULT gen_random_uuid(),
+      id VARCHAR(120) PRIMARY KEY,
       project_id VARCHAR(120),
       user_id VARCHAR(255),
       name VARCHAR(240) NOT NULL,
@@ -16,10 +17,10 @@ async function ensureTable() {
       mime_type VARCHAR(120),
       size_bytes INTEGER DEFAULT 0,
       created_at TIMESTAMPTZ DEFAULT now()
-    );
-    CREATE INDEX IF NOT EXISTS idx_bb_uploads_project ON bb_uploads(project_id, created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_bb_uploads_user ON bb_uploads(user_id, created_at DESC);
+    )
   `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_bb_uploads_project ON bb_uploads(project_id, created_at DESC)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_bb_uploads_user ON bb_uploads(user_id, created_at DESC)`);
   tableReady = true;
 }
 
@@ -47,7 +48,10 @@ router.get("/uploads", async (req, res) => {
         );
 
     res.json(rows);
-  } catch { res.status(500).json({ error: "Failed to load uploads" }); }
+  } catch (err) {
+    console.error("Uploads GET error:", err);
+    res.status(500).json({ error: "Failed to load uploads" });
+  }
 });
 
 // POST /api/uploads
@@ -75,7 +79,11 @@ router.post("/uploads", async (req, res) => {
     );
 
     res.json({ id, name, url: dataUrl, mimeType, sizeBytes });
-  } catch { res.status(500).json({ error: "Failed to upload file" }); }
+  } catch (err) {
+    console.error("Upload error:", err);
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: `Upload failed: ${msg}` });
+  }
 });
 
 // DELETE /api/uploads/:id
