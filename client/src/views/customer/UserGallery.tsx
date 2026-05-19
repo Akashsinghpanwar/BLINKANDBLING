@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Box, Check, Download, Eye, FileArchive, FolderOpen, Images, Instagram, Mail, Maximize2, MessageCircle, Pencil, Send, Share2, Sparkles, Trash2, Upload, X } from 'lucide-react'
 import { useLocation } from 'wouter'
@@ -109,6 +109,55 @@ export default function UserGallery() {
   const [folderNameDraft, setFolderNameDraft] = useState('')
   const [maximizedImage, setMaximizedImage] = useState<GalleryTile | null>(null)
   const [sharingFileId, setSharingFileId] = useState<string | null>(null)
+  const [uploadedImages, setUploadedImages] = useState<GalleryTile[]>([])
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    if (activeId !== 'uploads') return
+    fetch('/api/uploads', { credentials: 'include' })
+      .then(r => r.ok ? r.json() as Promise<Array<{ id: string; name: string; data_url: string }>> : [])
+      .then(rows => setUploadedImages(rows.map(r => ({ url: r.data_url, label: r.name }))))
+      .catch(() => {})
+  }, [activeId])
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    const reader = new FileReader()
+    reader.onload = async () => {
+      try {
+        const dataUrl = reader.result as string
+        const res = await fetch('/api/uploads', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: file.name, dataUrl, mimeType: file.type, sizeBytes: file.size }),
+        })
+        if (res.ok) {
+          const rows = await fetch('/api/uploads', { credentials: 'include' })
+            .then(r => r.json()) as Array<{ id: string; name: string; data_url: string }>
+          setUploadedImages(rows.map(r => ({ url: r.data_url, label: r.name })))
+          showToast('Image uploaded', 'success')
+        } else {
+          showToast('Upload failed — file may be too large (10 MB max)', 'error')
+        }
+      } catch {
+        showToast('Upload failed', 'error')
+      } finally {
+        setUploading(false)
+        if (fileInputRef.current) fileInputRef.current.value = ''
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const pinShare = (imageUrl: string, label: string) => {
+    const media = encodeURIComponent(imageUrl.startsWith('data:') ? '' : imageUrl)
+    const desc = encodeURIComponent(`${label} — Blink & Bling Jewellery`)
+    window.open(`https://pinterest.com/pin/create/button/?media=${media}&description=${desc}`, '_blank', 'width=750,height=550')
+  }
   const activeFolder = folders.find(folder => folder.id === activeId) ?? folders[0]
   const activeAiFolder = activeAiFolderId
     ? aiGeneratedFolders.find(folder => folder.id === activeAiFolderId) || null
@@ -234,14 +283,60 @@ export default function UserGallery() {
                 {activeAiFolder ? activeAiFolder.name : activeFolder.name}
               </strong>
             </div>
-            <span className="bb-eyebrow" style={{ color: 'var(--bb-muted)' }}>
-              {activeId === 'cad'
-                ? `${cadFiles.length} files`
-                : activeId === 'ai' && !activeAiFolder
-                ? `${aiGeneratedFolders.length} folders`
-                : `${(activeAiFolder?.images || activeFolder.images).length} images`}
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {activeId === 'uploads' && (
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={handleFileUpload}
+                  />
+                  <button
+                    type="button"
+                    className="bb-btn-primary"
+                    disabled={uploading}
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{ minHeight: 36, padding: '8px 14px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 7 }}
+                  >
+                    <Upload size={14} />
+                    {uploading ? 'Uploading…' : 'Upload Image'}
+                  </button>
+                </>
+              )}
+              <span className="bb-eyebrow" style={{ color: 'var(--bb-muted)' }}>
+                {activeId === 'cad'
+                  ? `${cadFiles.length} files`
+                  : activeId === 'uploads'
+                  ? `${uploadedImages.length || activeFolder.images.length} images`
+                  : activeId === 'ai' && !activeAiFolder
+                  ? `${aiGeneratedFolders.length} folders`
+                  : `${(activeAiFolder?.images || activeFolder.images).length} images`}
+              </span>
+            </div>
           </div>
+
+          {activeId === 'pinterest' && (
+            <div style={{ marginBottom: 16, padding: '12px 16px', borderRadius: 12, background: '#fff0f3', border: '1px solid #f9d0d8', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="#e60023"><path d="M12 0C5.373 0 0 5.373 0 12c0 5.084 3.163 9.426 7.627 11.174-.105-.949-.2-2.405.042-3.441.218-.937 1.407-5.965 1.407-5.965s-.359-.719-.359-1.782c0-1.668.967-2.914 2.171-2.914 1.023 0 1.518.769 1.518 1.69 0 1.029-.655 2.568-.994 3.995-.283 1.194.599 2.169 1.777 2.169 2.133 0 3.772-2.249 3.772-5.495 0-2.873-2.064-4.882-5.012-4.882-3.414 0-5.418 2.561-5.418 5.207 0 1.031.397 2.138.893 2.738a.36.36 0 0 1 .083.345l-.333 1.36c-.053.22-.174.267-.402.161-1.499-.698-2.436-2.889-2.436-4.649 0-3.785 2.75-7.262 7.929-7.262 4.163 0 7.398 2.967 7.398 6.931 0 4.136-2.607 7.464-6.227 7.464-1.216 0-2.359-.632-2.75-1.378l-.748 2.853c-.271 1.043-1.002 2.35-1.492 3.146C9.57 23.812 10.763 24 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0z"/></svg>
+              <div style={{ flex: 1 }}>
+                <strong style={{ color: '#e60023', fontSize: '0.9rem' }}>Pinterest Gallery</strong>
+                <span style={{ display: 'block', color: 'var(--bb-muted)', fontSize: '0.78rem', marginTop: 2 }}>
+                  Save any image from below directly to Pinterest, or open your board to import inspiration.
+                </span>
+              </div>
+              <a
+                href="https://www.pinterest.com"
+                target="_blank"
+                rel="noreferrer"
+                className="bb-btn-secondary"
+                style={{ textDecoration: 'none', fontSize: '0.82rem', minHeight: 34, padding: '7px 13px', color: '#e60023', borderColor: '#f9d0d8', whiteSpace: 'nowrap' }}
+              >
+                Open Pinterest
+              </a>
+            </div>
+          )}
 
           {activeId === 'cad' ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 12 }}>
@@ -391,7 +486,10 @@ export default function UserGallery() {
             </div>
           ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
-            {(activeAiFolder?.images || activeFolder.images).map((image, index) => (
+            {(activeId === 'uploads' && uploadedImages.length > 0
+              ? uploadedImages
+              : (activeAiFolder?.images || activeFolder.images)
+            ).map((image, index) => (
               <motion.figure
                 key={`${activeAiFolder?.id || activeFolder.id}-${image.url}-${index}`}
                 layout
@@ -409,12 +507,27 @@ export default function UserGallery() {
                   <button type="button" title="Maximize" onClick={() => setMaximizedImage(image)}><Maximize2 size={15} /></button>
                   <button type="button" title="Send to Magic Movement" onClick={() => sendToMagicMovement(image, index)}><Send size={15} /></button>
                   <button type="button" title="Send to CAD files" onClick={() => void sendToCad(image, index)}><Box size={15} /></button>
+                  {!image.url.startsWith('data:') && (
+                    <button
+                      type="button"
+                      title="Share on Pinterest"
+                      onClick={() => pinShare(image.url, image.label)}
+                      style={{ color: '#e60023' }}
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12c0 5.084 3.163 9.426 7.627 11.174-.105-.949-.2-2.405.042-3.441.218-.937 1.407-5.965 1.407-5.965s-.359-.719-.359-1.782c0-1.668.967-2.914 2.171-2.914 1.023 0 1.518.769 1.518 1.69 0 1.029-.655 2.568-.994 3.995-.283 1.194.599 2.169 1.777 2.169 2.133 0 3.772-2.249 3.772-5.495 0-2.873-2.064-4.882-5.012-4.882-3.414 0-5.418 2.561-5.418 5.207 0 1.031.397 2.138.893 2.738a.36.36 0 0 1 .083.345l-.333 1.36c-.053.22-.174.267-.402.161-1.499-.698-2.436-2.889-2.436-4.649 0-3.785 2.75-7.262 7.929-7.262 4.163 0 7.398 2.967 7.398 6.931 0 4.136-2.607 7.464-6.227 7.464-1.216 0-2.359-.632-2.75-1.378l-.748 2.853c-.271 1.043-1.002 2.35-1.492 3.146C9.57 23.812 10.763 24 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0z"/></svg>
+                    </button>
+                  )}
                 </div>
                 <figcaption title={image.prompt} style={{ padding: '9px 10px', color: 'var(--bb-muted)', fontSize: '0.78rem', fontWeight: 700 }}>
                   {image.label}
                 </figcaption>
               </motion.figure>
             ))}
+            {activeId === 'uploads' && uploadedImages.length === 0 && activeFolder.images.length === 0 && (
+              <div style={{ gridColumn: '1/-1', color: 'var(--bb-muted)', padding: 24, textAlign: 'center' }}>
+                No uploaded images yet. Click <strong>Upload Image</strong> to add your reference photos.
+              </div>
+            )}
           </div>
           )}
         </div>
