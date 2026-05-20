@@ -80,6 +80,7 @@ export interface CadFile {
 }
 
 interface ProjectContextValue {
+  isLoading: boolean
   projects: Project[]
   stages: Stage[]
   activeProject: Project | null
@@ -177,6 +178,7 @@ const INITIAL_PROJECTS: Project[] = [
 const ProjectContext = createContext<ProjectContextValue | null>(null)
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
+  const [isLoading, setIsLoading] = useState(true)
   const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS)
   const [activeProject, setActiveProjectState] = useState<Project | null>(null)
   const [portalProject, setPortalProject] = useState<Project | null>(null)
@@ -381,9 +383,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    void refreshGallery()
-    void refreshProjects()
-    void refreshCadFiles()
+    Promise.all([refreshGallery(), refreshProjects(), refreshCadFiles()])
+      .finally(() => setIsLoading(false))
   }, [])
 
   useEffect(() => {
@@ -392,6 +393,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   return (
     <ProjectContext.Provider value={{
+      isLoading,
       projects,
       stages: STAGES,
       activeProject,

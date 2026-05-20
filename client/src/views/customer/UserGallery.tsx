@@ -84,6 +84,7 @@ export default function UserGallery() {
   const [, setLocation] = useLocation()
   const { showToast } = useApp()
   const {
+    isLoading: isContextLoading,
     aiGeneratedFolders,
     cadFiles,
     renameAiGeneratedFolder,
@@ -110,6 +111,7 @@ export default function UserGallery() {
   const [maximizedImage, setMaximizedImage] = useState<GalleryTile | null>(null)
   const [sharingFileId, setSharingFileId] = useState<string | null>(null)
   const [uploadedImages, setUploadedImages] = useState<GalleryTile[]>([])
+  const [isLoadingUploads, setIsLoadingUploads] = useState(true)
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -125,22 +127,22 @@ export default function UserGallery() {
   }
 
   const refreshUploads = async () => {
+    setIsLoadingUploads(true)
     try {
       const r = await fetch('/api/uploads', { credentials: 'include' })
       if (r.ok) {
         const rows = await r.json() as Array<{ id: string; name: string; data_url: string }>
-        const tiles = rows.map(row => ({ url: row.data_url, label: row.name }))
-        setUploadedImages(tiles)
+        setUploadedImages(rows.map(row => ({ url: row.data_url, label: row.name })))
+        setIsLoadingUploads(false)
         return
       }
     } catch { /* fall through to localStorage */ }
     setUploadedImages(loadLocal())
+    setIsLoadingUploads(false)
   }
 
-  useEffect(() => {
-    if (activeId !== 'uploads') return
-    void refreshUploads()
-  }, [activeId])
+  // Pre-fetch on mount so uploads tab is instant when clicked
+  useEffect(() => { void refreshUploads() }, [])
 
   const readAsDataUrl = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
@@ -556,7 +558,19 @@ export default function UserGallery() {
                 </div>
               </div>
             )}
-            {activeId === 'uploads' && uploadedImages.length === 0 && uploadProgress === null && (
+            {((activeId === 'uploads' && isLoadingUploads) || (activeId !== 'uploads' && isContextLoading)) && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12, marginBottom: 12 }}>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} style={{ borderRadius: 14, overflow: 'hidden', border: '1px solid var(--bb-line)', background: '#f7f2ef' }}>
+                    <div className="bb-skeleton" style={{ aspectRatio: '1 / 1' }} />
+                    <div style={{ padding: '9px 10px' }}>
+                      <div className="bb-skeleton" style={{ height: 10, width: '60%' }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          {activeId === 'uploads' && !isLoadingUploads && uploadedImages.length === 0 && uploadProgress === null && !isDragging && (
               <div
                 onClick={() => fileInputRef.current?.click()}
                 style={{
@@ -572,11 +586,13 @@ export default function UserGallery() {
               </div>
             )}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
-            {(activeId === 'uploads' && uploadedImages.length > 0
+            {(activeId === 'uploads' && !isLoadingUploads && uploadedImages.length > 0
               ? uploadedImages
               : activeId === 'uploads'
               ? []
-              : (activeAiFolder?.images || activeFolder.images)
+              : !isContextLoading
+              ? (activeAiFolder?.images || activeFolder.images)
+              : []
             ).map((image, index) => (
               <motion.figure
                 key={`${activeAiFolder?.id || activeFolder.id}-${image.url}-${index}`}

@@ -75,7 +75,7 @@ function parseBudgetMin(budget: string): number {
 
 export default function Dashboard() {
   const [, navigate] = useLocation()
-  const { projects, stages } = useProjects()
+  const { isLoading, projects, stages } = useProjects()
   const spot = useSpotPrices()
   const [schedule, setSchedule] = useState<ScheduleItem[]>(loadSchedule)
   const [editing, setEditing] = useState<ScheduleItem | null>(null)
@@ -238,7 +238,21 @@ export default function Dashboard() {
         </div>
 
         <div style={{ display: 'grid', gap: 10 }}>
-          {projects.map(project => {
+          {isLoading && Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) minmax(160px,0.35fr) auto', alignItems: 'center', gap: 14, padding: 14, borderRadius: 16, border: '1px solid var(--bb-line)', background: '#fff' }}>
+              <div className="bb-skeleton" style={{ width: 44, height: 44, borderRadius: '50%' }} />
+              <div style={{ display: 'grid', gap: 8 }}>
+                <div className="bb-skeleton" style={{ height: 14, width: '40%' }} />
+                <div className="bb-skeleton" style={{ height: 10, width: '65%' }} />
+              </div>
+              <div style={{ display: 'grid', gap: 8 }}>
+                <div className="bb-skeleton" style={{ height: 10, width: '50%' }} />
+                <div className="bb-skeleton" style={{ height: 6, borderRadius: 999 }} />
+              </div>
+              <div className="bb-skeleton" style={{ width: 16, height: 16, borderRadius: 4 }} />
+            </div>
+          ))}
+          {!isLoading && projects.map(project => {
             const meta = stageMeta[project.stage] ?? { label: project.stage.replace(/_/g, ' '), progress: 30, tone: 'var(--bb-coral)' }
             const projectName = project.name.includes(' - ') ? project.name.split(' - ').slice(1).join(' - ') : project.name
             const needsAction = project.status === 'pending_approval'
@@ -283,7 +297,7 @@ export default function Dashboard() {
               </motion.article>
             )
           })}
-          {projects.length === 0 && (
+          {!isLoading && projects.length === 0 && (
             <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--bb-muted)' }}>
               <Users size={28} style={{ marginBottom: 10, opacity: 0.4 }} />
               <p style={{ margin: 0, fontSize: '0.9rem' }}>No clients yet — add your first client to get started.</p>
