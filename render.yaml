@@ -38,4 +38,4 @@ services:
       - key: OPENROUTER_API_KEY
         sync: false
       - key: OPENROUTER_MODEL
-        value: black-forest-labs/flux.2-pro
+        value: black-forest-labs/flux-1.1-pro

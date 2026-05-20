@@ -180,26 +180,27 @@ async function callOpenRouterImage(prompt: string) {
   const apiKey = process.env["OPENROUTER_API_KEY"];
   if (!apiKey) throw new Error("OpenRouter is not configured");
 
-  const response = await fetch("https://openrouter.ai/api/v1/images/generations", {
+  const model = getOpenRouterImageModel();
+
+  // OpenRouter uses the chat completions endpoint for ALL models including image generation.
+  // The /api/v1/images/generations endpoint does not exist on OpenRouter.
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${apiKey}`,
-      "HTTP-Referer": "http://localhost:5173",
+      "HTTP-Referer": "https://blinkandbling-1.onrender.com",
       "X-Title": "Blink & Bling",
     },
     body: JSON.stringify({
-      model: getOpenRouterImageModel(),
-      prompt,
-      n: 1,
-      size: "1024x1024",
-      response_format: "url",
+      model,
+      messages: [{ role: "user", content: prompt }],
     }),
   });
 
   if (!response.ok) {
     const detail = await response.text().catch(() => response.statusText);
-    logger.warn({ status: response.status, detail }, "OpenRouter image request failed");
+    logger.warn({ status: response.status, model, detail }, "OpenRouter image request failed");
     throw new Error(`OpenRouter image request failed (${response.status}): ${detail.slice(0, 200)}`);
   }
 
@@ -445,9 +446,7 @@ function getOpenAIModel() {
 function getOpenRouterImageModel() {
   return process.env["OPENROUTER_IMAGE_MODEL"]
     || process.env["OPENROUTER_MODEL"]
-    || process.env["OPENAI_IMAGE_MODEL"]
-    || process.env["OPENAI_MODEL"]
-    || "openai/gpt-5-image";
+    || "black-forest-labs/flux-1.1-pro";
 }
 
 function findImage(value: unknown): string | null {
@@ -482,14 +481,38 @@ function findOpenRouterImages(value: unknown): string[] {
   const record = value as Record<string, unknown>;
   const urls: string[] = [];
 
-  // Standard OpenAI images/generations response: { data: [{ url: "..." } | { b64_json: "..." }] }
-  const data = Array.isArray(record["data"]) ? record["data"] : [];
-  for (const item of data) {
-    const url = normalizeImageUrl(item);
-    if (url && !urls.includes(url)) urls.push(url);
+  // Chat completions response (used by OpenRouter for all models including Flux):
+  // { choices: [{ message: { content: "https://..." | [{ type: "image_url", image_url: { url: "..." } }] } }] }
+  const choices = Array.isArray(record["choices"]) ? record["choices"] : [];
+  for (const choice of choices) {
+    if (!choice || typeof choice !== "object") continue;
+    const msg = (choice as Record<string, unknown>)["message"];
+    if (!msg || typeof msg !== "object") continue;
+    const content = (msg as Record<string, unknown>)["content"];
+    // content is a plain URL string
+    if (typeof content === "string") {
+      const url = normalizeImageUrl(content);
+      if (url && !urls.includes(url)) urls.push(url);
+    }
+    // content is an array of content parts: [{type:"image_url", image_url:{url:"..."}}]
+    if (Array.isArray(content)) {
+      for (const part of content) {
+        const url = normalizeImageUrl(part);
+        if (url && !urls.includes(url)) urls.push(url);
+      }
+    }
   }
 
-  // Fallback: deep-scan the whole response object
+  // Fallback: legacy images/generations format { data: [{ url: "..." }] }
+  if (urls.length === 0) {
+    const data = Array.isArray(record["data"]) ? record["data"] : [];
+    for (const item of data) {
+      const url = normalizeImageUrl(item);
+      if (url && !urls.includes(url)) urls.push(url);
+    }
+  }
+
+  // Last resort: deep-scan the whole response
   if (urls.length === 0) collectImageUrls(value, urls);
   return urls;
 }
