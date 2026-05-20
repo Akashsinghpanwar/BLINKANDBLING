@@ -1,0 +1,13 @@
+<svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="180" height="180" rx="44" fill="#030303"/>
+<defs>
+  <radialGradient id="goldStar" cx="50%" cy="50%" r="50%">
+    <stop offset="0%" stop-color="#fff7bd"/>
+    <stop offset="25%" stop-color="#f4d56d"/>
+    <stop offset="48%" stop-color="#bd8628"/>
+    <stop offset="72%" stop-color="#8b6218"/>
+    <stop offset="100%" stop-color="#5f410e"/>
+  </radialGradient>
+</defs>
+<path d="M90 18 C99 76 119 81 162 90 C119 99 99 104 90 162 C81 104 61 99 18 90 C61 81 81 76 90 18Z" fill="url(#goldStar)"/>
+</svg>

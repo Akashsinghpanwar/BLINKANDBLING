@@ -6,6 +6,11 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Keep pre-built client on Render (too large to build on free tier)
+!client/dist/
+!client/dist/public/
+!client/dist/public/**
+
 # Environment & credentials
 .env
 .env.*
