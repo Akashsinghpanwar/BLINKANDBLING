@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Undo2, Redo2, Save, Upload, Download, ChevronDown, Pencil, Home, Menu, SlidersHorizontal } from "lucide-react";
+import { Undo2, Redo2, Save, Upload, Download, ChevronDown, Pencil, Home, Menu, SlidersHorizontal, Lock, Unlock } from "lucide-react";
 import { BBLogo } from "./BBLogo";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel,
@@ -12,6 +12,7 @@ import { exportSTEP, exportIGES, exportSTL } from "@/kernel/export";
 import { getOC } from "@/kernel/init";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useProjects } from "../context/ProjectContext";
 
 interface SavedDesign {
   id: string;
@@ -58,6 +59,15 @@ export function TopBar({ onGoHome, onToggleLeft, onToggleRight }: TopBarProps = 
   const [savedList, setSavedList] = useState<SavedDesign[]>(() => loadSavedDesigns());
   const [editingName, setEditingName] = useState(false);
   const [tempName, setTempName] = useState(designName);
+  const { activeProject, setCadUnlocked } = useProjects();
+  const cadUnlocked = activeProject?.cadUnlocked ?? false;
+
+  const handleToggleCad = async () => {
+    if (!activeProject) return;
+    const next = !cadUnlocked;
+    await setCadUnlocked(activeProject.id, next);
+    toast.success(next ? "CAD unlocked — customer can now view the 3D studio" : "CAD locked — hidden from customer");
+  };
 
   type WindowBuilder = {
     result: { assembly: { metalShape: unknown; centerStoneShape: unknown; haloShape: unknown | null } } | null;
@@ -292,6 +302,26 @@ export function TopBar({ onGoHome, onToggleLeft, onToggleRight }: TopBarProps = 
           <Upload className="h-4 w-4" />
         </Button>
         <input ref={fileInputRef} type="file" accept="application/json" onChange={handleImport} className="hidden" />
+
+        {activeProject && (
+          <button
+            type="button"
+            onClick={handleToggleCad}
+            title={cadUnlocked ? "CAD is shared with customer — click to lock" : "CAD is hidden from customer — click to share"}
+            data-testid="btn-cad-lock"
+            className={cn(
+              "flex h-8 items-center gap-1.5 rounded border px-2.5 text-xs font-medium transition-colors",
+              cadUnlocked
+                ? "border-emerald-400 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                : "border-[#A8A8A8] bg-white text-zinc-500 hover:text-zinc-700 hover:border-zinc-400",
+            )}
+          >
+            {cadUnlocked
+              ? <><Unlock className="h-3.5 w-3.5" /><span className="hidden sm:inline">Shared</span></>
+              : <><Lock className="h-3.5 w-3.5" /><span className="hidden sm:inline">Locked</span></>
+            }
+          </button>
+        )}
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

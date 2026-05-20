@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { logger } from "../lib/logger";
 
@@ -38,6 +39,26 @@ const moodboardSchema = z.object({
   count: z.number().int().min(1).max(8).optional().default(6),
 });
 
+type GenerateRequest = z.infer<typeof generateSchema>;
+type GenerateResult = Awaited<ReturnType<typeof generateImage>>;
+type RenderJobStatus = "queued" | "running" | "completed" | "failed";
+
+type RenderJob = {
+  id: string;
+  status: RenderJobStatus;
+  request: GenerateRequest;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  result?: GenerateResult;
+  error?: string;
+};
+
+const renderJobs = new Map<string, RenderJob>();
+const RENDER_JOB_TTL_MS = 1000 * 60 * 60;
+const MAX_RENDER_JOBS = 50;
+
 /* ----------------------------------------------------------
  * Moodboard: randomized concept generation
  * ---------------------------------------------------------- */
@@ -57,7 +78,7 @@ router.post("/ai-render/moodboard", async (req, res): Promise<void> => {
       const prompt = buildMoodboardPrompt(variation, brief);
       try {
         if ((process.env["OPENAI_PROVIDER"] || "").toLowerCase() === "openrouter") {
-          const response = await callOpenRouterImage(prompt, []);
+          const response = await callOpenRouterImage(buildFluxMoodboardPrompt(variation), []);
           const urls = findOpenRouterImages(response);
           if (urls[0]) {
             results.push({ url: urls[0], label: variation.label, category: variation.category, prompt });
@@ -102,6 +123,40 @@ router.post("/ai-render/generate", async (req, res): Promise<void> => {
   }
 });
 
+router.post("/ai-render/jobs", (req, res): void => {
+  const parsed = generateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+    return;
+  }
+
+  pruneRenderJobs();
+
+  const now = new Date().toISOString();
+  const job: RenderJob = {
+    id: randomUUID(),
+    status: "queued",
+    request: parsed.data,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  renderJobs.set(job.id, job);
+  void runRenderJob(job.id);
+  res.status(202).json(serializeRenderJob(job));
+});
+
+router.get("/ai-render/jobs/:id", (req, res): void => {
+  const id = req.params.id;
+  const job = renderJobs.get(id);
+  if (!job) {
+    res.status(404).json({ error: "Render job not found" });
+    return;
+  }
+
+  res.json(serializeRenderJob(job));
+});
+
 router.post("/ai/respond", async (req, res): Promise<void> => {
   const parsed = respondSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -118,7 +173,67 @@ router.post("/ai/respond", async (req, res): Promise<void> => {
   }
 });
 
-type GenerateRequest = z.infer<typeof generateSchema>;
+async function runRenderJob(id: string) {
+  const job = renderJobs.get(id);
+  if (!job) return;
+
+  const startedAt = new Date().toISOString();
+  job.status = "running";
+  job.startedAt = startedAt;
+  job.updatedAt = startedAt;
+
+  try {
+    const result = await generateImage(job.request);
+    const finishedAt = new Date().toISOString();
+    job.status = "completed";
+    job.result = result;
+    job.finishedAt = finishedAt;
+    job.updatedAt = finishedAt;
+    logger.info({ jobId: id, category: job.request.category }, "AI render job completed");
+  } catch (error) {
+    const finishedAt = new Date().toISOString();
+    job.status = "failed";
+    job.error = error instanceof Error ? error.message : "Image generation failed";
+    job.finishedAt = finishedAt;
+    job.updatedAt = finishedAt;
+    logger.warn({ jobId: id, err: safeError(error) }, "AI render job failed");
+  }
+}
+
+function serializeRenderJob(job: RenderJob) {
+  return {
+    id: job.id,
+    status: job.status,
+    category: job.request.category,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    startedAt: job.startedAt,
+    finishedAt: job.finishedAt,
+    result: job.result,
+    error: job.error,
+  };
+}
+
+function pruneRenderJobs() {
+  const cutoff = Date.now() - RENDER_JOB_TTL_MS;
+  for (const [id, job] of renderJobs.entries()) {
+    const updated = Date.parse(job.updatedAt);
+    if ((job.status === "completed" || job.status === "failed") && updated < cutoff) {
+      renderJobs.delete(id);
+    }
+  }
+
+  if (renderJobs.size <= MAX_RENDER_JOBS) return;
+
+  const oldest = [...renderJobs.values()]
+    .filter((job) => job.status === "completed" || job.status === "failed")
+    .sort((a, b) => Date.parse(a.updatedAt) - Date.parse(b.updatedAt));
+
+  for (const job of oldest) {
+    if (renderJobs.size <= MAX_RENDER_JOBS) break;
+    renderJobs.delete(job.id);
+  }
+}
 
 async function generateImage(request: GenerateRequest) {
   const { prompt, imagePrompt, category, references } = request;
@@ -185,8 +300,8 @@ async function callOpenRouterImage(
 
   const model = getOpenRouterImageModel();
 
-  // OpenRouter image generation uses chat completions plus `modalities`;
-  // generated images are returned in choices[].message.images.
+  // OpenRouter routes all models (including Flux image generation) via /chat/completions.
+  // Do NOT send `modalities` — that is an OpenAI-specific feature not supported by Flux.
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -197,12 +312,7 @@ async function callOpenRouterImage(
     },
     body: JSON.stringify({
       model,
-      messages: [
-        { role: "system", content: JEWELLERY_STYLE_SYSTEM },
-        { role: "user", content: buildOpenRouterMessageContent(prompt, references) },
-      ],
-      modalities: ["image", "text"],
-      stream: false,
+      messages: [{ role: "user", content: buildOpenRouterMessageContent(prompt, references) }],
     }),
     signal: AbortSignal.timeout(300_000),
   });

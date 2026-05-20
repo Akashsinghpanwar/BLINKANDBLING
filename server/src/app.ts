@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import session from "express-session";
@@ -33,10 +33,16 @@ if (!sessionSecret) {
   throw new Error("SESSION_SECRET environment variable is required");
 }
 
+const pgStore = new PgStore({ pool, tableName: "bb_sessions", createTableIfMissing: true });
+// Suppress session-store errors so a Supabase blip doesn't crash the process
+pgStore.on("error", (err: Error) => {
+  logger.warn({ err: err.message }, "Session store error (non-fatal)");
+});
+
 app.set("trust proxy", 1);
 app.use(
   session({
-    store: new PgStore({ pool, tableName: "bb_sessions", createTableIfMissing: true }),
+    store: pgStore,
     name: "bb.sid",
     secret: sessionSecret,
     resave: false,
@@ -52,5 +58,16 @@ app.use(
 );
 
 app.use("/api", router);
+
+// Global JSON error handler — catches any unhandled route error and returns
+// a clean JSON response instead of Express's default HTML error page.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  logger.error({ err }, "Unhandled route error");
+  const status = (err as unknown as { status?: number; statusCode?: number }).status
+    ?? (err as unknown as { status?: number; statusCode?: number }).statusCode
+    ?? 500;
+  res.status(status).json({ error: err.message || "Internal server error" });
+});
 
 export default app;

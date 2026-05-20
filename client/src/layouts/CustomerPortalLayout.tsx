@@ -10,6 +10,7 @@ import { useUnreadMessages } from '../hooks/useUnreadMessages'
 import { markRead } from '../lib/messages'
 
 const PORTAL_COMPACT_MQ = '(max-width: 920px)'
+const AVATAR_KEY = 'bb-customer-avatar'
 
 const navItems = [
   { name: 'Overview', path: '/portal', icon: LayoutDashboard, feature: 'overview' as const },
@@ -43,6 +44,7 @@ export default function CustomerPortalLayout({ children }: Props) {
   const [location, navigate] = useLocation()
   const [showMessenger, setShowMessenger] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [avatarSrc, setAvatarSrc] = useState<string | null>(() => localStorage.getItem(AVATAR_KEY))
   const isCompact = usePortalCompact()
   const { portalProject } = useProjects()
   const { unread, markAllRead } = useUnreadMessages()
@@ -66,6 +68,12 @@ export default function CustomerPortalLayout({ children }: Props) {
     const openMessenger = () => setShowMessenger(true)
     window.addEventListener('bb-open-messenger', openMessenger)
     return () => window.removeEventListener('bb-open-messenger', openMessenger)
+  }, [])
+
+  useEffect(() => {
+    const onAvatarChanged = () => setAvatarSrc(localStorage.getItem(AVATAR_KEY))
+    window.addEventListener('bb-avatar-changed', onAvatarChanged)
+    return () => window.removeEventListener('bb-avatar-changed', onAvatarChanged)
   }, [])
 
   return (
@@ -129,7 +137,11 @@ export default function CustomerPortalLayout({ children }: Props) {
             whileHover={{ scale: 1.02 }}
             transition={{ type: 'spring', stiffness: 400, damping: 25 }}
           >
-            <div className="bb-portal-header__avatar">{customerName.charAt(0)}</div>
+            <div className="bb-portal-header__avatar" style={{ padding: avatarSrc ? 0 : undefined, overflow: avatarSrc ? 'hidden' : undefined }}>
+              {avatarSrc
+                ? <img src={avatarSrc} alt={customerName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                : customerName.charAt(0)}
+            </div>
             <strong className="bb-portal-header__user-name">{customerName}</strong>
           </motion.div>
           <button

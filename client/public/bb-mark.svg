@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 335" fill="none">
+  <defs>
+    <linearGradient id="sh" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#848484"/>
+      <stop offset="30%"  stop-color="#dcdcdc"/>
+      <stop offset="55%"  stop-color="#e8e8e8"/>
+      <stop offset="80%"  stop-color="#d0d0d0"/>
+      <stop offset="100%" stop-color="#909090"/>
+    </linearGradient>
+    <linearGradient id="sv" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#e4e4e4"/>
+      <stop offset="40%"  stop-color="#c0c0c0"/>
+      <stop offset="100%" stop-color="#808080"/>
+    </linearGradient>
+    <radialGradient id="aq" cx="34%" cy="28%" r="66%">
+      <stop offset="0%"   stop-color="#d8f4fc"/>
+      <stop offset="35%"  stop-color="#68caec"/>
+      <stop offset="72%"  stop-color="#2a8ab8"/>
+      <stop offset="100%" stop-color="#125470"/>
+    </radialGradient>
+    <radialGradient id="di" cx="36%" cy="26%" r="68%">
+      <stop offset="0%"   stop-color="#ffffff"/>
+      <stop offset="52%"  stop-color="#daeef8"/>
+      <stop offset="100%" stop-color="#a8c8e0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- CROWN -->
+  <g transform="translate(150,40)">
+    <path d="M0,-27 C9,-12 11,0 0,27 C-11,0 -9,-12 0,-27Z" fill="url(#aq)"/>
+    <path d="M-4,-19 C-2,-9 -1,0 -2,11 C-5,2 -6,-7 -4,-19Z" fill="rgba(255,255,255,0.38)"/>
+  </g>
+  <g transform="translate(122,51) rotate(-28)">
+    <path d="M0,-21 C8,-9 8,2 0,21 C-8,2 -8,-9 0,-21Z" fill="url(#di)"/>
+  </g>
+  <g transform="translate(178,51) rotate(28)">
+    <path d="M0,-21 C8,-9 8,2 0,21 C-8,2 -8,-9 0,-21Z" fill="url(#di)"/>
+  </g>
+  <g transform="translate(99,68) rotate(-54)">
+    <path d="M0,-17 C6,-7 6,2 0,17 C-6,2 -6,-7 0,-17Z" fill="url(#aq)"/>
+  </g>
+  <g transform="translate(201,68) rotate(54)">
+    <path d="M0,-17 C6,-7 6,2 0,17 C-6,2 -6,-7 0,-17Z" fill="url(#aq)"/>
+  </g>
+  <circle cx="150" cy="15"  r="2.2" fill="#b8b8b8"/>
+  <circle cx="150" cy="66"  r="3"   fill="#b0b0b0"/>
+  <line x1="150" y1="68" x2="150" y2="90" stroke="#bebebe" stroke-width="2"/>
+
+  <!-- BB MONOGRAM -->
+  <path d="M150 91 C131 93,103 104,91 124 C81 141,81 167,91 184 C103 204,131 214,150 216"
+        stroke="url(#sh)" stroke-width="5.5" stroke-linecap="round"/>
+  <path d="M150 91 C169 93,197 104,209 124 C219 141,219 167,209 184 C197 204,169 214,150 216"
+        stroke="url(#sh)" stroke-width="5.5" stroke-linecap="round"/>
+  <path d="M150 91 C143 100,138 112,134 124 C130 135,130 147,135 155 C139 162,144 166,150 167"
+        stroke="url(#sh)" stroke-width="5.5" stroke-linecap="round"/>
+  <path d="M150 167 C143 168,138 173,134 180 C130 188,130 200,135 207 C139 213,144 216,150 216"
+        stroke="url(#sh)" stroke-width="5.5" stroke-linecap="round"/>
+  <path d="M150 91 C157 100,162 112,166 124 C170 135,170 147,165 155 C161 162,156 166,150 167"
+        stroke="url(#sh)" stroke-width="5.5" stroke-linecap="round"/>
+  <path d="M150 167 C157 168,162 173,166 180 C170 188,170 200,165 207 C161 213,156 216,150 216"
+        stroke="url(#sh)" stroke-width="5.5" stroke-linecap="round"/>
+  <line x1="150" y1="91" x2="150" y2="216" stroke="url(#sv)" stroke-width="5"/>
+  <circle cx="150" cy="167" r="4" fill="url(#sv)"/>
+
+  <!-- Centre gem -->
+  <path d="M150 108 C168 127,174 148,150 200 C126 148,132 127,150 108Z" fill="url(#aq)"/>
+  <path d="M144 116 C146 130,147 145,146 160 C142 144,141 129,144 116Z" fill="rgba(255,255,255,0.42)"/>
+  <line x1="150" y1="108" x2="150" y2="200" stroke="rgba(255,255,255,0.18)" stroke-width="1"/>
+
+  <!-- SCROLL -->
+  <line x1="150" y1="216" x2="150" y2="230" stroke="#c4c4c4" stroke-width="2"/>
+  <path d="M150 230 C145 235,136 239,130 246 C122 255,123 267,130 273 C137 278,148 275,150 270"
+        fill="none" stroke="url(#sh)" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M150 230 C155 235,164 239,170 246 C178 255,177 267,170 273 C163 278,152 275,150 270"
+        fill="none" stroke="url(#sh)" stroke-width="2.6" stroke-linecap="round"/>
+  <line x1="118" y1="274" x2="182" y2="274" stroke="#c0c0c0" stroke-width="2"/>
+  <circle cx="150" cy="283" r="7" fill="url(#aq)"/>
+  <circle cx="148" cy="280" r="2.4" fill="rgba(255,255,255,0.55)"/>
+  <line x1="150" y1="290" x2="150" y2="302" stroke="#c8c8c8" stroke-width="1.6"/>
+
+  <!-- 4-point sparkle -->
+  <path d="M150 305 C151.5 312,154.5 315,162 316 C154.5 317,151.5 320,150 327 C148.5 320,145.5 317,138 316 C145.5 315,148.5 312,150 305Z"
+        fill="#c4c4c4" opacity="0.72"/>
+</svg>

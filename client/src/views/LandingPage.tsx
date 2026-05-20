@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { usePWAInstall } from '../hooks/usePWAInstall'
 import { Link, useLocation } from 'wouter'
 import { AnimatePresence, motion, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import {
@@ -8,6 +9,7 @@ import {
   CircleUserRound,
   Columns3,
   CreditCard,
+  Download,
   LogIn,
   Rocket,
   ShieldCheck,
@@ -74,6 +76,7 @@ const RESULT_SHOWCASE_BOTTOM = RESULT_SHOWCASE_IMAGES.filter((_, index) => index
 export default function LandingPage() {
   const [, navigate] = useLocation()
   const reduced = useReducedMotion()
+  const { canInstall, installed, install } = usePWAInstall()
   const { scrollY } = useScroll()
   const heroBlobY = useTransform(scrollY, [0, 600], [0, -120])
   const heroImgY = useTransform(scrollY, [0, 600], [0, -60])
@@ -505,6 +508,58 @@ export default function LandingPage() {
               >
                 View my order
               </button>
+              <AnimatePresence>
+                {canInstall && (
+                  <motion.button
+                    key="pwa-install"
+                    initial={{ opacity: 0, scale: 0.92 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.92 }}
+                    transition={{ duration: 0.3, ease: [0.22, 0.9, 0.32, 1] }}
+                    onClick={install}
+                    data-testid="hero-cta-install"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 9,
+                      fontSize: '0.98rem',
+                      padding: '14px 22px',
+                      borderRadius: 999,
+                      border: '1px solid rgba(201,146,40,0.55)',
+                      background: 'linear-gradient(135deg, rgba(247,217,106,0.12), rgba(201,146,40,0.08))',
+                      color: '#a07010',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      backdropFilter: 'blur(8px)',
+                      transition: 'background 0.2s, border-color 0.2s',
+                    }}
+                    onMouseEnter={e => {
+                      (e.currentTarget as HTMLButtonElement).style.background = 'linear-gradient(135deg, rgba(247,217,106,0.22), rgba(201,146,40,0.16))'
+                      ;(e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(201,146,40,0.85)'
+                    }}
+                    onMouseLeave={e => {
+                      (e.currentTarget as HTMLButtonElement).style.background = 'linear-gradient(135deg, rgba(247,217,106,0.12), rgba(201,146,40,0.08))'
+                      ;(e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(201,146,40,0.55)'
+                    }}
+                  >
+                    <Download size={17} />
+                    Install App
+                  </motion.button>
+                )}
+                {installed && (
+                  <motion.span
+                    key="pwa-installed"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 7,
+                      fontSize: '0.88rem', color: 'var(--bb-muted)', padding: '14px 4px',
+                    }}
+                  >
+                    <CheckCircle2 size={15} style={{ color: '#3f8874' }} /> App installed
+                  </motion.span>
+                )}
+              </AnimatePresence>
             </motion.div>
 
             <motion.div

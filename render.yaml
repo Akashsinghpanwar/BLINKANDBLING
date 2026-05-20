@@ -7,7 +7,7 @@ services:
     name: blink-bling
     runtime: node
     plan: free
-    buildCommand: pnpm install && pnpm --filter @workspace/api-server run build
+    buildCommand: pnpm install && node server/build.mjs
     startCommand: pnpm run start:deploy
     healthCheckPath: /api/healthz
     envVars:

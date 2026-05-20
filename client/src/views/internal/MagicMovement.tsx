@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   CircleDot, Crown, Download, Eraser, Flower2, Gem, ImagePlus,
   Paintbrush, RefreshCcw, Send, Sparkles, Star, Wand2, Watch, X,
+  Timer, Heart, Link, Disc3, Diamond,
 } from 'lucide-react'
 import { useLocation } from 'wouter'
 import { useApp } from '../../context/AppContext'
@@ -13,17 +14,24 @@ import { removeWhiteBackground } from '../../lib/removeBackground'
 interface Reference { id: string; url: string; name: string }
 interface RenderAngle { angle: string; url: string }
 interface Render { id: string; url: string; images: RenderAngle[]; prompt: string; ts: number }
+type RenderJobStatus = 'queued' | 'running' | 'completed' | 'failed'
+interface RenderJobResponse {
+  id: string
+  status: RenderJobStatus
+  result?: { imageUrl?: string; images?: RenderAngle[] }
+  error?: string
+}
 
 const STYLE_LOCK = 'STYLE LOCK: 2D colored-pencil jewellery sketch only, scanned hand-drawn concept art, visible pencil grain, graphite outlines, faceted gemstone linework, transparent PNG cutout, centered single product, no logo, no text, no realistic photo, no 3D, no CAD, no glossy render'
 
 const CATEGORY_OPTIONS = [
-  { id: 'women_watch', label: 'Women watch', icon: Watch },
-  { id: 'men_watch',   label: 'Men watch',   icon: Watch },
-  { id: 'necklace',   label: 'Necklace',    icon: Gem },
-  { id: 'earrings',   label: 'Earrings',    icon: Star },
-  { id: 'pendant',    label: 'Pendant',     icon: Flower2 },
-  { id: 'bangle',     label: 'Bangle',      icon: Crown },
-  { id: 'ring',       label: 'Ring',        icon: CircleDot },
+  { id: 'women_watch', label: 'Women\nWatch',  icon: Watch   },
+  { id: 'men_watch',   label: 'Men\nWatch',    icon: Timer   },
+  { id: 'necklace',   label: 'Necklace',      icon: Link    },
+  { id: 'earrings',   label: 'Earrings',      icon: Gem     },
+  { id: 'pendant',    label: 'Pendant',       icon: Heart   },
+  { id: 'bangle',     label: 'Bangle',        icon: Disc3   },
+  { id: 'ring',       label: 'Ring',          icon: Diamond },
 ] as const
 
 const SPARKLE_PARTICLES = [
@@ -61,9 +69,12 @@ export default function MagicMovement() {
   const [displayUrl, setDisplayUrl] = useState<string | null>(null)
   const [history, setHistory]       = useState<Render[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
+  const [jobStatus, setJobStatus] = useState<RenderJobStatus | null>(null)
   const [progress, setProgress]     = useState(0)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
 
   const fileRef = useRef<HTMLInputElement>(null)
+  const activeJobIdRef = useRef<string | null>(null)
   const galleryBatchRef = useRef<{
     timer: number | null
     name: string; prompt: string
@@ -128,14 +139,22 @@ export default function MagicMovement() {
 
   /* ── Progress animation ── */
   useEffect(() => {
-    if (!isGenerating) { setProgress(0); return }
-    let p = 0
+    if (!isGenerating) {
+      setProgress(0)
+      setElapsedSeconds(0)
+      return undefined
+    }
+    const startedAt = Date.now()
     const id = window.setInterval(() => {
-      p = Math.min(95, p + Math.random() * 9 + 3)
-      setProgress(p)
-    }, 220)
+      const elapsed = Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+      setElapsedSeconds(elapsed)
+      const target = jobStatus === 'queued'
+        ? Math.min(18, 4 + elapsed * 1.8)
+        : Math.min(92, 18 + Math.sqrt(elapsed) * 8.5)
+      setProgress(prev => Math.max(prev, target))
+    }, 1000)
     return () => window.clearInterval(id)
-  }, [isGenerating])
+  }, [isGenerating, jobStatus])
 
   /* ── File upload ── */
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -159,15 +178,75 @@ export default function MagicMovement() {
     return [lunaBrief, prompt].filter(Boolean).join('\n')
   }
 
+  const finishGeneration = async (
+    data: { imageUrl?: unknown; images?: unknown },
+    finalPrompt: string,
+  ) => {
+    setProgress(100)
+    const imageSet: RenderAngle[] = Array.isArray(data?.images) && data.images.length
+      ? data.images.filter((img: unknown): img is RenderAngle =>
+          Boolean(img && typeof img === 'object' && usableImageUrl((img as RenderAngle).url)))
+      : []
+    const aiUrl = usableImageUrl(data?.imageUrl) || imageSet[0]?.url
+    const primary = aiUrl || photos.goldStack
+    const rendered: Render = {
+      id: Date.now() + '',
+      url: primary,
+      images: imageSet.length ? imageSet : [{ angle: '45-degree front', url: primary }],
+      prompt: finalPrompt,
+      ts: Date.now(),
+    }
+
+    setGenerated(rendered)
+    setHistory(prev => [rendered, ...prev].slice(0, 8))
+    saveAiGeneratedImage({
+      url: rendered.url,
+      label: `${rendered.images[0]?.angle || 'Concept'} - ${new Date(rendered.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+      prompt: rendered.prompt,
+    })
+    setIsGenerating(false)
+    setJobStatus(null)
+    activeJobIdRef.current = null
+    showToast(aiUrl ? 'Design ready' : 'AI unavailable - showing placeholder', aiUrl ? 'success' : 'error')
+
+    const transparent = await removeWhiteBackground(rendered.url)
+    setDisplayUrl(transparent)
+  }
+
+  const pollRenderJob = async (jobId: string): Promise<RenderJobResponse | null> => {
+    for (let attempt = 0; attempt < 180; attempt += 1) {
+      await new Promise(resolve => window.setTimeout(resolve, attempt === 0 ? 900 : 2500))
+      if (activeJobIdRef.current !== jobId) return null
+
+      const res = await fetch(`/api/ai-render/jobs/${jobId}`, { cache: 'no-store' })
+      const data = await res.json().catch(() => null) as RenderJobResponse | null
+
+      if (!res.ok || !data) {
+        throw new Error(typeof data?.error === 'string' ? data.error : `Render status failed (${res.status})`)
+      }
+
+      setJobStatus(data.status === 'queued' ? 'queued' : 'running')
+      if (data.status === 'completed') return data
+      if (data.status === 'failed') {
+        throw new Error(data.error || 'Image generation failed')
+      }
+    }
+
+    throw new Error('Render is still running. Please try again in a moment.')
+  }
+
   /* ── Generate ── */
   const generate = async () => {
     if (!prompt.trim()) { showToast('Describe the piece first', 'error'); return }
     setIsGenerating(true)
+    setJobStatus('queued')
+    setProgress(2)
+    setElapsedSeconds(0)
     setGenerated(null)
     setDisplayUrl(null)
     const finalPrompt = buildPrompt()
     try {
-      const res = await fetch('/api/ai-render/generate', {
+      const res = await fetch('/api/ai-render/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -178,43 +257,28 @@ export default function MagicMovement() {
           count: 1,
         }),
       })
-      const data = await res.json().catch(() => null)
+      const data = await res.json().catch(() => null) as RenderJobResponse | null
       if (!res.ok) {
         setIsGenerating(false)
+        setJobStatus(null)
         showToast(typeof data?.error === 'string' ? data.error : `Generation failed (${res.status})`, 'error')
         return
       }
-      setProgress(100)
-      const imageSet: RenderAngle[] = Array.isArray(data?.images) && data.images.length
-        ? data.images.filter((img: unknown): img is RenderAngle =>
-            Boolean(img && typeof img === 'object' && usableImageUrl((img as RenderAngle).url)))
-        : []
-      const aiUrl   = usableImageUrl(data?.imageUrl) || imageSet[0]?.url
-      const primary = aiUrl || photos.goldStack
-      const rendered: Render = {
-        id: Date.now() + '',
-        url: primary,
-        images: imageSet.length ? imageSet : [{ angle: '45-degree front', url: primary }],
-        prompt: finalPrompt,
-        ts: Date.now(),
-      }
-      setTimeout(async () => {
-        setGenerated(rendered)
-        setHistory(prev => [rendered, ...prev].slice(0, 8))
-        saveAiGeneratedImage({
-          url: rendered.url,
-          label: `${rendered.images[0]?.angle || 'Concept'} - ${new Date(rendered.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-          prompt: rendered.prompt,
-        })
-        setIsGenerating(false)
-        showToast(aiUrl ? 'Design ready' : 'AI unavailable — showing placeholder', aiUrl ? 'success' : 'error')
-        // Strip white background so image floats on the aurora gradient
-        const transparent = await removeWhiteBackground(rendered.url)
-        setDisplayUrl(transparent)
-      }, 350)
-    } catch {
+      if (!data?.id) throw new Error('Render job was not created')
+      activeJobIdRef.current = data.id
+      setJobStatus(data.status === 'queued' ? 'queued' : 'running')
+      showToast('Render queued', 'success')
+
+      const completed = await pollRenderJob(data.id)
+      if (!completed || activeJobIdRef.current !== data.id) return
+      if (!completed.result) throw new Error('Render completed without an image')
+      await finishGeneration(completed.result, finalPrompt)
+      return
+    } catch (error) {
       setIsGenerating(false)
-      showToast('Could not reach the API. Start the server or set API_PROXY_TARGET when using Vite dev.', 'error')
+      setJobStatus(null)
+      activeJobIdRef.current = null
+      showToast(error instanceof Error ? error.message : 'Could not reach the API. Start the server or set API_PROXY_TARGET when using Vite dev.', 'error')
     }
   }
 
@@ -231,6 +295,9 @@ export default function MagicMovement() {
   }
 
   const clearAll = () => {
+    activeJobIdRef.current = null
+    setIsGenerating(false)
+    setJobStatus(null)
     setPrompt('')
     setCategory('women_watch')
     setReferences([])
@@ -279,13 +346,13 @@ export default function MagicMovement() {
             className="bb-card bb-lift"
             style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14, minHeight: 580 }}
           >
-            {/* ── Category chips ── */}
+            {/* ── Category grid ── */}
             <div>
               <label style={LABEL_STYLE}>Category</label>
-              {/* Scrollable single-row chip strip */}
               <div style={{
-                display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4,
-                scrollbarWidth: 'none',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, 1fr)',
+                gap: 6,
               }}>
                 {CATEGORY_OPTIONS.map(opt => {
                   const Icon = opt.icon
@@ -295,30 +362,35 @@ export default function MagicMovement() {
                       key={opt.id}
                       type="button"
                       onClick={() => setCategory(opt.id)}
+                      title={opt.label.replace('\n', ' ')}
                       style={{
-                        flexShrink: 0,
-                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
-                        padding: '10px 12px', borderRadius: 14, cursor: 'pointer',
-                        border: active ? '1.5px solid transparent' : '1.5px solid var(--bb-line)',
+                        display: 'flex', flexDirection: 'column', alignItems: 'center',
+                        justifyContent: 'center', gap: 6,
+                        padding: '10px 4px', borderRadius: 12, cursor: 'pointer',
+                        border: `1.5px solid ${active ? 'transparent' : 'var(--bb-line)'}`,
                         background: active
                           ? 'linear-gradient(135deg, var(--bb-coral), var(--bb-rose) 55%, var(--bb-violet))'
                           : 'rgba(255,255,255,0.72)',
                         color: active ? '#fff' : 'var(--bb-muted)',
                         boxShadow: active
-                          ? '0 4px 16px rgba(207,95,145,0.32)'
-                          : '0 1px 4px rgba(0,0,0,0.04)',
+                          ? '0 4px 14px rgba(207,95,145,0.35)'
+                          : '0 1px 3px rgba(0,0,0,0.05)',
                         transition: 'all 0.18s ease',
-                        minWidth: 58,
+                        minHeight: 62,
                       }}
                     >
                       <div style={{
-                        width: 32, height: 32, borderRadius: 10,
-                        background: active ? 'rgba(255,255,255,0.18)' : 'rgba(207,95,145,0.07)',
+                        width: 34, height: 34, borderRadius: 10,
+                        background: active ? 'rgba(255,255,255,0.20)' : 'rgba(207,95,145,0.08)',
                         display: 'grid', placeItems: 'center',
+                        boxShadow: active ? '0 2px 8px rgba(0,0,0,0.12)' : 'none',
                       }}>
-                        <Icon size={15} style={{ flexShrink: 0 }} />
+                        <Icon size={17} strokeWidth={1.8} />
                       </div>
-                      <span style={{ fontSize: '0.64rem', fontWeight: 700, textAlign: 'center', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+                      <span style={{
+                        fontSize: '0.60rem', fontWeight: 700, textAlign: 'center',
+                        lineHeight: 1.25, whiteSpace: 'pre-line',
+                      }}>
                         {opt.label}
                       </span>
                     </button>
@@ -454,7 +526,7 @@ export default function MagicMovement() {
                 }}
               >
                 <Sparkles size={16} />
-                {isGenerating ? 'Generating...' : 'Generate concept'}
+                {isGenerating ? (jobStatus === 'queued' ? 'Queued...' : 'Rendering...') : 'Generate concept'}
                 {!isGenerating && <Send size={13} style={{ marginLeft: 3 }} />}
               </button>
             </div>
@@ -470,7 +542,7 @@ export default function MagicMovement() {
           }}>
             <AnimatePresence mode="wait">
               {isGenerating ? (
-                <GeneratingState key="gen" progress={progress} prompt={buildPrompt()} />
+                <GeneratingState key="gen" progress={progress} prompt={buildPrompt()} status={jobStatus} elapsedSeconds={elapsedSeconds} />
               ) : generated ? (
                 <motion.div
                   key={generated.id}
@@ -627,7 +699,20 @@ function EmptyCanvas({ category }: { category: string }) {
   )
 }
 
-function GeneratingState({ progress, prompt }: { progress: number; prompt: string }) {
+function GeneratingState({
+  progress,
+  prompt,
+  status,
+  elapsedSeconds,
+}: {
+  progress: number
+  prompt: string
+  status: RenderJobStatus | null
+  elapsedSeconds: number
+}) {
+  const statusLabel = status === 'queued' ? 'Queued for render' : 'Rendering concept'
+  const minutes = Math.floor(elapsedSeconds / 60)
+  const seconds = `${elapsedSeconds % 60}`.padStart(2, '0')
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -666,7 +751,7 @@ function GeneratingState({ progress, prompt }: { progress: number; prompt: strin
           <Gem size={34} />
         </div>
       </motion.div>
-      <h3 className="bb-display" style={{ margin: '0 0 8px', fontSize: '1.45rem' }}>Crafting your design</h3>
+      <h3 className="bb-display" style={{ margin: '0 0 8px', fontSize: '1.45rem' }}>{statusLabel}</h3>
       <p style={{ color: 'var(--bb-muted)', margin: '0 auto 18px', fontSize: '0.86rem', lineHeight: 1.5, maxWidth: 300 }}>
         {prompt || 'Composing prompt…'}
       </p>
@@ -689,7 +774,7 @@ function GeneratingState({ progress, prompt }: { progress: number; prompt: strin
         display: 'block', marginTop: 8, color: 'var(--bb-muted)',
         fontSize: '0.72rem', letterSpacing: '0.14em', textTransform: 'uppercase', fontWeight: 700,
       }}>
-        {Math.round(progress)}%
+        {Math.round(progress)}% / {minutes}:{seconds}
       </span>
     </motion.div>
   )
