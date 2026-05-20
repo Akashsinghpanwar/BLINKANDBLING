@@ -7,7 +7,7 @@ services:
     name: blink-bling
     runtime: node
     plan: free
-    buildCommand: corepack enable && pnpm install && pnpm run build:deploy
+    buildCommand: pnpm install && pnpm run build:deploy
     startCommand: pnpm run start:deploy
     healthCheckPath: /api/healthz
     envVars:
