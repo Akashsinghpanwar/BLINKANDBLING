@@ -43,15 +43,18 @@ try {
 
   logger.info({ port }, "App fully initialised");
 
-  // Connect to DB (non-blocking — server is already up)
+  // Connect to DB and auto-create all tables (non-blocking — server is already up)
   try {
     const { verifyDbConnection } = await import("@workspace/db");
     const { getSupabaseApiStatus } = await import("@workspace/db/supabase");
+    const { ensureSchema } = await import("./lib/ensureSchema");
     const dbStatus = await verifyDbConnection();
     logger.info(dbStatus, "Database connected");
     logger.info(getSupabaseApiStatus(), "Supabase API");
+    await ensureSchema();
+    logger.info("Database schema ready");
   } catch (err) {
-    logger.error({ err }, "Database connection failed — check SUPABASE_DATABASE_URL");
+    logger.error({ err }, "Database connection/schema failed — check SUPABASE_DATABASE_URL");
   }
 
 } catch (err) {
