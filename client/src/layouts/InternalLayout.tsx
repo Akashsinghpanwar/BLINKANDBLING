@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'wouter'
 import { AnimatePresence, motion } from 'framer-motion'
-import { LayoutDashboard, LogOut, Search, Users } from 'lucide-react'
+import { Bell, LayoutDashboard, LogOut, Search, Users } from 'lucide-react'
 import PageTransition from '../components/PageTransition'
 import BlinkBlingLogo from '../components/BlinkBlingLogo'
 import { logout } from '../lib/auth'
+import { useUnreadMessages } from '../hooks/useUnreadMessages'
 
 const navItems = [
   { name: 'Overview', path: '/workspace', icon: LayoutDashboard },
@@ -17,6 +18,7 @@ export default function InternalLayout({ children }: Props) {
   const [location, navigate] = useLocation()
   const [hovering, setHovering] = useState(false)
   const expanded = hovering
+  const { unread } = useUnreadMessages()
 
   const isActive = (path: string) => path === '/workspace' ? location === '/workspace' : location.startsWith(path)
   const pageLabel = navItems.find(item => isActive(item.path))?.name || 'Workspace'
@@ -152,6 +154,17 @@ export default function InternalLayout({ children }: Props) {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--bb-ink)', fontWeight: 700 }}>
+            {/* Notification bell — lights up when a customer sends a message */}
+            <Link
+              href="/workspace/customers"
+              style={{ position: 'relative', display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: 12, border: `1px solid ${unread.total > 0 ? '#fbb' : 'var(--bb-line)'}`, background: unread.total > 0 ? '#fff5f5' : '#fff', color: unread.total > 0 ? '#e63950' : 'var(--bb-muted)', textDecoration: 'none', transition: 'all 0.2s' }}
+              aria-label={unread.total > 0 ? `${unread.total} unread messages` : 'No new messages'}
+            >
+              <Bell size={17} />
+              {unread.total > 0 && (
+                <span className="bb-notif-badge">{unread.total > 99 ? '99+' : unread.total}</span>
+              )}
+            </Link>
             <div style={{ width: 38, height: 38, display: 'grid', placeItems: 'center', borderRadius: '50%', color: '#fff', background: 'linear-gradient(135deg, var(--bb-coral), var(--bb-rose))' }}>
               AK
             </div>

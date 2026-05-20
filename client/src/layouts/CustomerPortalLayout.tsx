@@ -6,6 +6,8 @@ import PageTransition from '../components/PageTransition'
 import BlinkBlingLogo from '../components/BlinkBlingLogo'
 import { useProjects } from '../context/ProjectContext'
 import ProjectMessenger from '../components/ProjectMessenger'
+import { useUnreadMessages } from '../hooks/useUnreadMessages'
+import { markRead } from '../lib/messages'
 
 const PORTAL_COMPACT_MQ = '(max-width: 920px)'
 
@@ -40,6 +42,8 @@ export default function CustomerPortalLayout({ children }: Props) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const isCompact = usePortalCompact()
   const { portalProject } = useProjects()
+  const { unread, markAllRead } = useUnreadMessages()
+  const hasUnread = unread.total > 0
   const customerName = portalProject?.customer.name || 'Customer'
   const access = {
     overview: true,
@@ -95,16 +99,27 @@ export default function CustomerPortalLayout({ children }: Props) {
         >
           <button
             type="button"
-            onClick={() => setShowMessenger(v => !v)}
+            onClick={() => {
+              const opening = !showMessenger
+              setShowMessenger(v => !v)
+              if (opening && portalProject) {
+                markAllRead(portalProject.id, 'customer')
+                markAllRead(portalProject.id)
+              }
+            }}
             className="bb-lift bb-portal-header__icon-btn"
             aria-label={showMessenger ? 'Close messenger' : 'Open messenger'}
             style={{
-              border: `1px solid ${showMessenger ? '#e5c6bd' : 'var(--bb-line)'}`,
-              background: showMessenger ? '#fff7f4' : '#fff',
-              color: showMessenger ? 'var(--bb-rose)' : 'var(--bb-muted)',
+              position: 'relative',
+              border: `1px solid ${showMessenger ? '#e5c6bd' : hasUnread ? '#fbb' : 'var(--bb-line)'}`,
+              background: showMessenger ? '#fff7f4' : hasUnread ? '#fff5f5' : '#fff',
+              color: showMessenger ? 'var(--bb-rose)' : hasUnread ? '#e63950' : 'var(--bb-muted)',
             }}
           >
             <MessageCircle size={18} />
+            {hasUnread && !showMessenger && (
+              <span className="bb-notif-dot" aria-label={`${unread.total} unread messages`} />
+            )}
           </button>
           <motion.div
             className="bb-portal-header__user"

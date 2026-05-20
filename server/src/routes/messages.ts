@@ -23,6 +23,42 @@ async function ensureTable() {
   tableReady = true;
 }
 
+// GET /api/messages/unread-counts  – returns unread count for authenticated user
+router.get("/messages/unread-counts", async (req, res) => {
+  try {
+    await ensureTable();
+    const userId = req.session.userId;
+    const customerProjectId = req.session.customerProjectId;
+    if (!userId && !customerProjectId) { res.status(401).json({ error: "Not authenticated" }); return; }
+
+    if (userId) {
+      // Jeweller: count unread customer messages across ALL projects
+      const { rows } = await pool.query(
+        `SELECT project_id, COUNT(*)::int AS unread
+         FROM bb_messages
+         WHERE author = 'customer' AND read_by_jeweller = false
+         GROUP BY project_id`
+      );
+      const byProject: Record<string, number> = {};
+      let total = 0;
+      for (const row of rows) {
+        byProject[row.project_id as string] = row.unread as number;
+        total += row.unread as number;
+      }
+      res.json({ total, byProject });
+    } else {
+      // Customer: count unread jeweller messages for their project
+      const { rows } = await pool.query(
+        `SELECT COUNT(*)::int AS unread FROM bb_messages
+         WHERE project_id = $1 AND author = 'jeweller' AND read_by_customer = false`,
+        [customerProjectId]
+      );
+      const unread = (rows[0]?.unread as number) ?? 0;
+      res.json({ total: unread, byProject: { [customerProjectId as string]: unread } });
+    }
+  } catch { res.status(500).json({ error: "Failed to get unread counts" }); }
+});
+
 // GET /api/messages/:projectId
 router.get("/messages/:projectId", async (req, res) => {
   try {
