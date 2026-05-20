@@ -57,7 +57,7 @@ router.post("/ai-render/moodboard", async (req, res): Promise<void> => {
       const prompt = buildMoodboardPrompt(variation, brief);
       try {
         if ((process.env["OPENAI_PROVIDER"] || "").toLowerCase() === "openrouter") {
-          const response = await callOpenRouterImage(buildFluxMoodboardPrompt(variation));
+          const response = await callOpenRouterImage(prompt, []);
           const urls = findOpenRouterImages(response);
           if (urls[0]) {
             results.push({ url: urls[0], label: variation.label, category: variation.category, prompt });
@@ -97,7 +97,7 @@ router.post("/ai-render/generate", async (req, res): Promise<void> => {
     const result = await generateImage(parsed.data);
     res.json(result);
   } catch (error) {
-    logger.warn({ err: safeError(error) }, "Azure OpenAI image generation failed");
+    logger.warn({ err: safeError(error) }, "AI image generation failed");
     res.status(502).json({ error: error instanceof Error ? error.message : "Image generation failed" });
   }
 });
@@ -157,16 +157,16 @@ async function generateImage(request: GenerateRequest) {
 
 async function generateOpenRouterImages(
   prompt: string,
-  _imagePrompt: string,
+  imagePrompt: string,
   category: string,
-  _references: Array<z.infer<typeof referenceSchema>>,
+  references: Array<z.infer<typeof referenceSchema>>,
 ) {
   const variations = createJewelleryVariations(prompt, 1, category);
   const results: Array<{ angle: string; url: string }> = [];
 
   for (const variation of variations) {
-    const finalPrompt = buildFluxPrompt(prompt, variation);
-    const response = await callOpenRouterImage(finalPrompt);
+    const finalPrompt = buildJewelleryImagePrompt(prompt, imagePrompt, variation, references);
+    const response = await callOpenRouterImage(finalPrompt, references);
     const images = findOpenRouterImages(response);
     const url = images[0];
     if (!url) throw new Error(`OpenRouter did not return image for ${variation.label}`);
@@ -176,15 +176,18 @@ async function generateOpenRouterImages(
   return results;
 }
 
-async function callOpenRouterImage(prompt: string) {
+async function callOpenRouterImage(
+  prompt: string,
+  references: Array<z.infer<typeof referenceSchema>> = [],
+) {
   const apiKey = process.env["OPENROUTER_API_KEY"];
   if (!apiKey) throw new Error("OpenRouter is not configured");
 
   const model = getOpenRouterImageModel();
 
-  // OpenRouter uses the chat completions endpoint for ALL models including image generation.
-  // The /api/v1/images/generations endpoint does not exist on OpenRouter.
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  // OpenRouter image generation uses chat completions plus `modalities`;
+  // generated images are returned in choices[].message.images.
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -194,17 +197,52 @@ async function callOpenRouterImage(prompt: string) {
     },
     body: JSON.stringify({
       model,
-      messages: [{ role: "user", content: prompt }],
+      messages: [
+        { role: "system", content: JEWELLERY_STYLE_SYSTEM },
+        { role: "user", content: buildOpenRouterMessageContent(prompt, references) },
+      ],
+      modalities: ["image", "text"],
+      stream: false,
     }),
+    signal: AbortSignal.timeout(300_000),
   });
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => response.statusText);
-    logger.warn({ status: response.status, model, detail }, "OpenRouter image request failed");
-    throw new Error(`OpenRouter image request failed (${response.status}): ${detail.slice(0, 200)}`);
+  const rawText = await res.text();
+
+  if (!res.ok) {
+    logger.error({ status: res.status, model, body: rawText.slice(0, 600) }, "OpenRouter image generation failed");
+    throw new Error(`OpenRouter image request failed (${res.status}): ${rawText.slice(0, 300)}`);
   }
 
-  return response.json() as Promise<unknown>;
+  let data: unknown;
+  try {
+    data = JSON.parse(rawText);
+  } catch {
+    logger.error({ model, rawText: rawText.slice(0, 600) }, "OpenRouter returned non-JSON");
+    throw new Error(`OpenRouter returned non-JSON response: ${rawText.slice(0, 200)}`);
+  }
+
+  logger.info({ model, responseKeys: Object.keys(data as object) }, "OpenRouter image response received");
+  return data;
+}
+
+function buildOpenRouterMessageContent(
+  prompt: string,
+  references: Array<z.infer<typeof referenceSchema>>,
+) {
+  const usableReferences = references
+    .filter((ref) => isUsableImageUrl(ref.url))
+    .slice(0, 3);
+
+  if (!usableReferences.length) return prompt;
+
+  return [
+    { type: "text", text: prompt },
+    ...usableReferences.map((ref) => ({
+      type: "image_url",
+      image_url: { url: ref.url, detail: "high" },
+    })),
+  ];
 }
 
 type JewelleryVariation = {
@@ -338,31 +376,21 @@ function buildJewelleryImagePrompt(
   references: Array<z.infer<typeof referenceSchema>> = [],
 ) {
   return [
-    "STYLE LOCK - NON NEGOTIABLE:",
-    "2D colored-pencil jewellery/watch concept illustration only. The image must look hand drawn, scanned, and cut out. Do not create a realistic photo, studio product shot, 3D/CAD/CGI image, glossy render, lifestyle scene, or object on a table.",
+    "Create one high-resolution jewellery/watch concept image.",
     "",
-    `Create a single isolated ${variation.category} illustration as a transparent PNG cutout.`,
+    `Object/category: single isolated ${variation.category}.`,
     "",
-    "Use this Luna/customer design brief only for subject, category, materials, colors, stones, and design intent. Ignore any conflicting style request for realism, product photography, 3D, CAD, renders, studio lighting, glossy reflections, or lifestyle presentation:",
+    "Customer brief:",
     userPrompt.trim(),
     imagePrompt.trim()
-      ? [
-          "",
-          "Additional visual guidance from user, still subordinate to the style lock above:",
-          imagePrompt.trim(),
-        ].join("\n")
+      ? `Additional guidance: ${imagePrompt.trim()}`
       : "",
-    "",
-    "Generate a new design direction, not a direct copy of any uploaded or known image.",
-    "",
-    "Exact visual target:",
-    "The result must look like a luxury jewellery/watch concept sketch drawn with colored pencils: visible pencil grain, graphite-black outline work, hand-drawn contour lines, bright colored gemstone fills, faceted stone linework, white pencil highlight strokes, and gold/silver metal shading made from pencil strokes. It should look like a scanned professional jewellery design illustration cutout, never like a camera image.",
     "",
     "Design:",
     variation.design,
     "",
     "Style:",
-    "Detailed colorful pencil-sketch jewellery concept art, crisp graphite outlines, soft colored-pencil shading, illustrated faceted gemstone drawing, hand-drawn metal sheen strokes, luxury concept illustration, refined catalogue cutout presentation.",
+    "Detailed colorful pencil-sketch jewellery concept art. Visible pencil grain, graphite-black outlines, hand-drawn contour lines, soft colored-pencil shading, illustrated gemstone facets, white pencil highlight strokes, and hand-drawn metal sheen. The image must look like a scanned professional luxury jewellery design sketch, not a camera image.",
     "",
     "Materials and colors:",
     variation.materials,
@@ -385,15 +413,15 @@ function buildJewelleryImagePrompt(
       : "",
     "",
     "Composition:",
-    "Single subject only, centered, full product visible, generous clean margins, product-catalog cutout composition, balanced symmetry where appropriate, no extra objects. For jewellery sets, arrange the necklace, earrings, and ring cleanly as one coordinated isolated set.",
+    "Single subject only, centered, full product visible, generous clean margins, clean product-catalog cutout composition. For jewellery sets, arrange the necklace, earrings, and ring cleanly as one coordinated isolated set.",
     "",
     "Background:",
-    "Transparent PNG alpha background only. If alpha is not supported, use pure white seamless background (#FFFFFF), no horizon line, no paper texture, no scene. Do not draw a checkerboard; the viewer may show transparency separately.",
+    "Transparent PNG alpha background. If alpha is not supported, use pure white seamless background (#FFFFFF). Do not draw checkerboard squares.",
     "",
     "Restrictions:",
-    "No text, no logo, no brand name, no watermark, no people, no hands, no mannequin, no table, no box, no fabric, no props, no background scene, no frame, no border, no extra objects, no realistic photograph, no studio photo, no CAD image, no 3D image, no CGI, no glossy render, no plastic look, no dark background, no shadows on a surface.",
+    "No text, no logo, no brand name, no watermark, no people, no hands, no mannequin, no table, no box, no fabric, no props, no background scene, no frame, no border, no extra objects.",
     "",
-    "Final check before generating: if the image starts looking photographic, 3D, CAD-like, glossy, or studio-lit, convert it back into a flat 2D colored-pencil sketch with visible graphite outlines and pencil texture.",
+    "Hard negative style lock: no realistic photograph, no studio product shot, no CAD image, no 3D image, no CGI, no glossy render, no plastic look, no dark background, no surface shadows. If the image starts looking photographic or 3D, convert it back into a flat 2D colored-pencil sketch.",
   ].filter(Boolean).join("\n");
 }
 
@@ -445,8 +473,8 @@ function getOpenAIModel() {
 
 function getOpenRouterImageModel() {
   return process.env["OPENROUTER_IMAGE_MODEL"]
-    || process.env["OPENROUTER_MODEL"]
-    || "black-forest-labs/flux-1.1-pro";
+    || process.env["OPENAI_IMAGE_MODEL"]
+    || "openai/gpt-5.4-image-2";
 }
 
 function findImage(value: unknown): string | null {
@@ -481,34 +509,43 @@ function findOpenRouterImages(value: unknown): string[] {
   const record = value as Record<string, unknown>;
   const urls: string[] = [];
 
-  // Chat completions response (used by OpenRouter for all models including Flux):
-  // { choices: [{ message: { content: "https://..." | [{ type: "image_url", image_url: { url: "..." } }] } }] }
-  const choices = Array.isArray(record["choices"]) ? record["choices"] : [];
-  for (const choice of choices) {
-    if (!choice || typeof choice !== "object") continue;
-    const msg = (choice as Record<string, unknown>)["message"];
-    if (!msg || typeof msg !== "object") continue;
-    const content = (msg as Record<string, unknown>)["content"];
-    // content is a plain URL string
-    if (typeof content === "string") {
-      const url = normalizeImageUrl(content);
-      if (url && !urls.includes(url)) urls.push(url);
-    }
-    // content is an array of content parts: [{type:"image_url", image_url:{url:"..."}}]
-    if (Array.isArray(content)) {
-      for (const part of content) {
-        const url = normalizeImageUrl(part);
-        if (url && !urls.includes(url)) urls.push(url);
-      }
-    }
+  // Primary: images/generations format { data: [{ url: "https://..." } | { b64_json: "..." }] }
+  const data = Array.isArray(record["data"]) ? record["data"] : [];
+  for (const item of data) {
+    const url = normalizeImageUrl(item);
+    if (url && !urls.includes(url)) urls.push(url);
   }
 
-  // Fallback: legacy images/generations format { data: [{ url: "..." }] }
+  // Fallback: chat completions format
+  // Handles content (string | array) AND the `images` field used by gpt-5.4-image-2
   if (urls.length === 0) {
-    const data = Array.isArray(record["data"]) ? record["data"] : [];
-    for (const item of data) {
-      const url = normalizeImageUrl(item);
-      if (url && !urls.includes(url)) urls.push(url);
+    const choices = Array.isArray(record["choices"]) ? record["choices"] : [];
+    for (const choice of choices) {
+      if (!choice || typeof choice !== "object") continue;
+      const msg = (choice as Record<string, unknown>)["message"];
+      if (!msg || typeof msg !== "object") continue;
+      const m = msg as Record<string, unknown>;
+
+      // gpt-5.4-image-2 returns images in message.images (content is null)
+      if (Array.isArray(m["images"])) {
+        for (const img of m["images"] as unknown[]) {
+          const url = normalizeImageUrl(img);
+          if (url && !urls.includes(url)) urls.push(url);
+        }
+      }
+
+      // Standard: message.content as string or content-block array
+      const content = m["content"];
+      if (typeof content === "string") {
+        const url = normalizeImageUrl(content);
+        if (url && !urls.includes(url)) urls.push(url);
+      }
+      if (Array.isArray(content)) {
+        for (const part of content) {
+          const url = normalizeImageUrl(part);
+          if (url && !urls.includes(url)) urls.push(url);
+        }
+      }
     }
   }
 
@@ -525,6 +562,9 @@ function normalizeImageUrl(value: unknown): string | null {
     if (compact.length > 1000 && /^[A-Za-z0-9+/=]+$/.test(compact)) {
       return `data:image/png;base64,${compact}`;
     }
+    // Extract URL embedded in prose (e.g. Flux returning text around the image link)
+    const urlMatch = trimmed.match(/https?:\/\/\S{20,}/);
+    if (urlMatch) return urlMatch[0].replace(/[)"'>]+$/, "");
     return null;
   }
 
