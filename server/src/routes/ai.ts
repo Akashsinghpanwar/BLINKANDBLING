@@ -74,15 +74,17 @@ router.post("/ai-render/moodboard", async (req, res): Promise<void> => {
     const variations = buildMoodboardVariations(category, count);
     const results: Array<{ url: string; label: string; category: string; prompt: string }> = [];
 
-    for (const variation of variations) {
-      const prompt = buildMoodboardPrompt(variation, brief);
-      try {
-        if ((process.env["OPENAI_PROVIDER"] || "").toLowerCase() === "openrouter") {
+    const isOpenRouter = (process.env["OPENAI_PROVIDER"] || "").toLowerCase() === "openrouter";
+
+    // Generate all moodboard images in parallel — sequential would be count × API time
+    const settled = await Promise.allSettled(
+      variations.map(async (variation) => {
+        const prompt = buildMoodboardPrompt(variation, brief);
+        if (isOpenRouter) {
           const response = await callOpenRouterImage(buildFluxMoodboardPrompt(variation), []);
           const urls = findOpenRouterImages(response);
-          if (urls[0]) {
-            results.push({ url: urls[0], label: variation.label, category: variation.category, prompt });
-          }
+          if (!urls[0]) throw new Error("No image URL in response");
+          return { url: urls[0], label: variation.label, category: variation.category, prompt };
         } else {
           const response = await callAzureResponses({
             model: getOpenAIModel(),
@@ -90,13 +92,18 @@ router.post("/ai-render/moodboard", async (req, res): Promise<void> => {
             tools: [{ type: "image_generation", action: "generate" }],
           });
           const image = findImage(response);
-          if (image) {
-            const url = image.startsWith("data:image/") || /^https?:\/\//i.test(image) ? image : `data:image/png;base64,${image}`;
-            results.push({ url, label: variation.label, category: variation.category, prompt });
-          }
+          if (!image) throw new Error("No image in Azure response");
+          const url = image.startsWith("data:image/") || /^https?:\/\//i.test(image) ? image : `data:image/png;base64,${image}`;
+          return { url, label: variation.label, category: variation.category, prompt };
         }
-      } catch (err) {
-        logger.warn({ err: safeError(err), label: variation.label }, "Moodboard single image failed, continuing");
+      }),
+    );
+
+    for (const result of settled) {
+      if (result.status === "fulfilled") {
+        results.push(result.value);
+      } else {
+        logger.warn({ err: safeError(result.reason) }, "Moodboard single image failed, skipping");
       }
     }
 
@@ -280,7 +287,8 @@ async function generateOpenRouterImages(
   const results: Array<{ angle: string; url: string }> = [];
 
   for (const variation of variations) {
-    const finalPrompt = buildJewelleryImagePrompt(prompt, imagePrompt, variation, references);
+    // Use Flux-optimized prompt (not the long Azure-format one) — shorter prompts process faster
+    const finalPrompt = buildFluxPrompt(prompt, variation);
     const response = await callOpenRouterImage(finalPrompt, references);
     const images = findOpenRouterImages(response);
     const url = images[0];

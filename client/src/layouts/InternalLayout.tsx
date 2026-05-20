@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'wouter'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Bell, LayoutDashboard, LogOut, Search, Settings, Users } from 'lucide-react'
@@ -18,10 +18,22 @@ const bottomNavItems = [
 
 interface Props { children: React.ReactNode }
 
+function useIsMobile() {
+  const [mobile, setMobile] = useState(() => window.innerWidth <= 920)
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 920px)')
+    const onChange = () => setMobile(mql.matches)
+    mql.addEventListener('change', onChange)
+    return () => mql.removeEventListener('change', onChange)
+  }, [])
+  return mobile
+}
+
 export default function InternalLayout({ children }: Props) {
   const [location, navigate] = useLocation()
   const [hovering, setHovering] = useState(false)
-  const expanded = hovering
+  const isMobile = useIsMobile()
+  const expanded = hovering && !isMobile
   const { unread } = useUnreadMessages()
 
   const isActive = (path: string) => path === '/workspace' ? location === '/workspace' : location.startsWith(path)
@@ -34,12 +46,12 @@ export default function InternalLayout({ children }: Props) {
   return (
     <motion.div
       className="internal-layout bb-app-shell"
-      animate={{ gridTemplateColumns: expanded ? '236px minmax(0,1fr)' : '76px minmax(0,1fr)' }}
+      animate={{ gridTemplateColumns: isMobile ? '1fr' : (expanded ? '236px minmax(0,1fr)' : '76px minmax(0,1fr)') }}
       transition={{ duration: 0.32, ease: [0.22, 0.9, 0.32, 1] }}
       style={{
         minHeight: '100vh',
         display: 'grid',
-        gridTemplateColumns: expanded ? '236px minmax(0,1fr)' : '76px minmax(0,1fr)',
+        gridTemplateColumns: isMobile ? '1fr' : (expanded ? '236px minmax(0,1fr)' : '76px minmax(0,1fr)'),
         background: 'radial-gradient(circle at 90% 0%, rgba(244,223,226,0.7), transparent 30%), radial-gradient(circle at 0% 100%, rgba(207,232,222,0.32), transparent 30%), linear-gradient(135deg, #fffefe 0%, #fbf8f5 55%, #f7eee9 100%)',
       }}
     >
