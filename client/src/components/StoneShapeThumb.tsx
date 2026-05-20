@@ -63,6 +63,73 @@ function paths(shape: StoneShape): { outline: string; star: string[] } {
         star: [`M${c},${c - r} L${c},${c + r}`, `M${c - 10},${c} L${c + 10},${c}`, `M${c - 6},${c - 4} L${c + 6},${c + 4}`],
       };
     }
+    case "asscher": {
+      const s = r * 0.88, ci = 5;
+      return {
+        outline: `M${c - s + ci},${c - s} L${c + s - ci},${c - s} L${c + s},${c - s + ci} L${c + s},${c + s - ci} L${c + s - ci},${c + s} L${c - s + ci},${c + s} L${c - s},${c + s - ci} L${c - s},${c - s + ci} Z`,
+        star: [`M${c - s + 3},${c} L${c + s - 3},${c}`, `M${c},${c - s + 3} L${c},${c + s - 3}`, `M${c - s + ci},${c - s} L${c + s - ci},${c + s}`, `M${c + s - ci},${c - s} L${c - s + ci},${c + s}`],
+      };
+    }
+    case "radiant": {
+      const rw = r * 0.78, rh = r * 1.0, rc = 3;
+      return {
+        outline: `M${c - rw + rc},${c - rh} L${c + rw - rc},${c - rh} L${c + rw},${c - rh + rc} L${c + rw},${c + rh - rc} L${c + rw - rc},${c + rh} L${c - rw + rc},${c + rh} L${c - rw},${c + rh - rc} L${c - rw},${c - rh + rc} Z`,
+        star: Array.from({ length: 8 }, (_, i) => {
+          const a = (i / 8) * Math.PI * 2;
+          return `M${c},${c} L${c + Math.cos(a) * rw * 0.85},${c + Math.sin(a) * rh * 0.85}`;
+        }),
+      };
+    }
+    case "heart": {
+      return {
+        outline: `M${c},${c + r} C${c - r},${c + 4} ${c - r - 6},${c - 6} ${c - r * 0.5},${c - r * 0.6} C${c - 2},${c - r - 2} ${c + 2},${c - r - 2} ${c + r * 0.5},${c - r * 0.6} C${c + r + 6},${c - 6} ${c + r},${c + 4} ${c},${c + r} Z`,
+        star: [`M${c},${c + r} L${c},${c - 4}`, `M${c - 8},${c} L${c + 8},${c}`],
+      };
+    }
+    case "trillion": {
+      const tp = r * 1.05;
+      return {
+        outline: `M${c},${c - tp} L${c + tp * 0.92},${c + tp * 0.55} L${c - tp * 0.92},${c + tp * 0.55} Z`,
+        star: [`M${c},${c - tp} L${c},${c + tp * 0.55}`, `M${c - tp * 0.92},${c + tp * 0.55} L${c + tp * 0.92},${c + tp * 0.55}`],
+      };
+    }
+    case "baguette": {
+      const bw = r * 0.52, bh = r;
+      return {
+        outline: `M${c - bw},${c - bh} L${c + bw},${c - bh} L${c + bw},${c + bh} L${c - bw},${c + bh} Z`,
+        star: [`M${c - bw},${c - bh} L${c + bw},${c + bh}`, `M${c + bw},${c - bh} L${c - bw},${c + bh}`, `M${c - bw},${c} L${c + bw},${c}`],
+      };
+    }
+    case "briolette": {
+      const ry2 = r, rx2 = r * 0.55;
+      return {
+        outline: `M${c},${c - ry2} Q${c + rx2},${c - ry2 * 0.4} ${c + rx2},${c} Q${c + rx2},${c + ry2 * 0.4} ${c},${c + ry2} Q${c - rx2},${c + ry2 * 0.4} ${c - rx2},${c} Q${c - rx2},${c - ry2 * 0.4} ${c},${c - ry2} Z`,
+        star: [`M${c},${c - ry2} L${c},${c + ry2}`, `M${c - rx2},${c} L${c + rx2},${c}`],
+      };
+    }
+    case "cabochon": {
+      const cr = r * 0.95;
+      return {
+        outline: `M${c},${c - cr} A${cr},${cr} 0 1,1 ${c},${c + cr} A${cr},${cr} 0 1,1 ${c},${c - cr} Z`,
+        star: [],
+      };
+    }
+    case "rose-cut": {
+      const rr = r;
+      const star2 = Array.from({ length: 6 }, (_, i) => {
+        const a = (i / 6) * Math.PI * 2;
+        return `M${c},${c} L${c + Math.cos(a) * rr},${c + Math.sin(a) * rr}`;
+      });
+      return {
+        outline: `M${c},${c - rr} A${rr},${rr} 0 1,1 ${c},${c + rr} A${rr},${rr} 0 1,1 ${c},${c - rr} Z`,
+        star: star2,
+      };
+    }
+    default:
+      return {
+        outline: `M ${c} ${c - r} a ${r} ${r} 0 1 1 0 ${r * 2} a ${r} ${r} 0 1 1 0 -${r * 2}`,
+        star: [],
+      };
   }
 }
 

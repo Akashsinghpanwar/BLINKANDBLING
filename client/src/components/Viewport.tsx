@@ -5,6 +5,7 @@ import { ACESFilmicToneMapping } from "three";
 import { useRecipeStore } from "@/store/recipe";
 import { useUIStore, type ViewName } from "@/store/ui";
 import { RingScene, type RingSceneHandle } from "./RingScene";
+import { PendantScene, EarringStudScene, EarringHoopScene, BangleScene } from "./JewelryScene";
 import { KernelStatus } from "./KernelStatus";
 import { ViewCube } from "./ViewCube";
 import { useRingBuilder } from "@/kernel/useRingBuilder";
@@ -133,7 +134,21 @@ export const Viewport = forwardRef<ViewportHandle>((_, ref) => {
             <gridHelper args={[40, 40, "#A8A8A8", "#E8E8E8"]} position={[0, -9.99, 0]} />
           )}
 
-          <RingScene ref={sceneRef} result={builder.result} wireframe={showWireframe} />
+          {recipe.jewelryCategory === "ring" && (
+            <RingScene ref={sceneRef} result={builder.result} wireframe={showWireframe} />
+          )}
+          {recipe.jewelryCategory === "pendant" && (
+            <PendantScene wireframe={showWireframe} />
+          )}
+          {recipe.jewelryCategory === "earring-stud" && (
+            <EarringStudScene wireframe={showWireframe} />
+          )}
+          {recipe.jewelryCategory === "earring-hoop" && (
+            <EarringHoopScene wireframe={showWireframe} />
+          )}
+          {recipe.jewelryCategory === "bangle" && (
+            <BangleScene wireframe={showWireframe} />
+          )}
 
           {showShadow && (
             <ContactShadows position={[0, -10, 0]} opacity={0.7} scale={40} blur={2.6} far={22} color="#000000" />

@@ -15,8 +15,7 @@ const navItems = [
   { name: 'Designs', path: '/portal/magic-movement', icon: Sparkles, feature: 'designs' as const },
   { name: 'User Gallery', path: '/portal/gallery', icon: Images, feature: 'gallery' as const },
   { name: '3D Preview', path: '/portal/3d-studio', icon: Box, feature: 'cad' as const },
-  { name: 'Timeline', path: '/portal/timeline', icon: Timer, feature: 'timeline' as const },
-  { name: 'Payments', path: '/portal/payments', icon: CreditCard, feature: 'payments' as const },
+{ name: 'Payments', path: '/portal/payments', icon: CreditCard, feature: 'payments' as const },
 ]
 
 interface Props { children: React.ReactNode }

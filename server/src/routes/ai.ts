@@ -57,7 +57,7 @@ router.post("/ai-render/moodboard", async (req, res): Promise<void> => {
       const prompt = buildMoodboardPrompt(variation, brief);
       try {
         if ((process.env["OPENAI_PROVIDER"] || "").toLowerCase() === "openrouter") {
-          const response = await callOpenRouterImage(prompt, []);
+          const response = await callOpenRouterImage(buildFluxMoodboardPrompt(variation));
           const urls = findOpenRouterImages(response);
           if (urls[0]) {
             results.push({ url: urls[0], label: variation.label, category: variation.category, prompt });
@@ -157,16 +157,16 @@ async function generateImage(request: GenerateRequest) {
 
 async function generateOpenRouterImages(
   prompt: string,
-  imagePrompt: string,
+  _imagePrompt: string,
   category: string,
-  references: Array<z.infer<typeof referenceSchema>>,
+  _references: Array<z.infer<typeof referenceSchema>>,
 ) {
   const variations = createJewelleryVariations(prompt, 1, category);
   const results: Array<{ angle: string; url: string }> = [];
 
   for (const variation of variations) {
-    const finalPrompt = buildJewelleryImagePrompt(prompt, imagePrompt, variation, references);
-    const response = await callOpenRouterImage(finalPrompt, references);
+    const finalPrompt = buildFluxPrompt(prompt, variation);
+    const response = await callOpenRouterImage(finalPrompt);
     const images = findOpenRouterImages(response);
     const url = images[0];
     if (!url) throw new Error(`OpenRouter did not return image for ${variation.label}`);
@@ -176,11 +176,11 @@ async function generateOpenRouterImages(
   return results;
 }
 
-async function callOpenRouterImage(prompt: string, references: Array<z.infer<typeof referenceSchema>> = []) {
+async function callOpenRouterImage(prompt: string) {
   const apiKey = process.env["OPENROUTER_API_KEY"];
   if (!apiKey) throw new Error("OpenRouter is not configured");
 
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const response = await fetch("https://openrouter.ai/api/v1/images/generations", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -190,39 +190,20 @@ async function callOpenRouterImage(prompt: string, references: Array<z.infer<typ
     },
     body: JSON.stringify({
       model: getOpenRouterImageModel(),
-      messages: [
-        { role: "system", content: JEWELLERY_STYLE_SYSTEM },
-        { role: "user", content: buildOpenRouterMessageContent(prompt, references) },
-      ],
-      modalities: ["image"],
-      stream: false,
+      prompt,
+      n: 1,
+      size: "1024x1024",
+      response_format: "url",
     }),
   });
 
   if (!response.ok) {
     const detail = await response.text().catch(() => response.statusText);
     logger.warn({ status: response.status, detail }, "OpenRouter image request failed");
-    throw new Error("OpenRouter image request failed");
+    throw new Error(`OpenRouter image request failed (${response.status}): ${detail.slice(0, 200)}`);
   }
 
   return response.json() as Promise<unknown>;
-}
-
-function buildOpenRouterMessageContent(prompt: string, references: Array<z.infer<typeof referenceSchema>>) {
-  if (references.length === 0) return prompt;
-
-  return [
-    { type: "text", text: prompt },
-    ...references
-      .filter((reference) => isUsableImageUrl(reference.url))
-      .slice(0, 3)
-      .map((reference) => ({
-        type: "image_url",
-        image_url: {
-          url: reference.url,
-        },
-      })),
-  ];
 }
 
 type JewelleryVariation = {
@@ -298,6 +279,55 @@ function normalizeCategory(category: string) {
   if (/bangle|bracelet|cuff/.test(normalized)) return "bangle";
   if (/ring|solitaire|halo/.test(normalized)) return "ring";
   return null;
+}
+
+/* ----------------------------------------------------------
+ * OpenRouter image prompt builder
+ * Structured prompt following the formula:
+ * Subject + Style + Design + Materials + Composition + Background + Restrictions
+ * ---------------------------------------------------------- */
+function buildFluxPrompt(userPrompt: string, variation: JewelleryVariation): string {
+  return [
+    `Create a single isolated ${variation.category} illustration on a white background.`,
+    "",
+    "Style: FULLY FINISHED luxury jewelry concept illustration. Every single surface must use COLORED pencil — NO plain graphite grey anywhere. Metal surfaces: use warm champagne-gold and butter-yellow tones for yellow gold, icy blue-silver and lavender for white gold/silver/platinum, rose-coral and peachy tones for rose gold. The entire piece must look richly and fully colored, like a professional luxury jewelry catalog illustration, not a monochrome sketch.",
+    "",
+    `Design: ${variation.design}.`,
+    userPrompt.trim() ? `Customer brief: ${userPrompt.trim()}.` : "",
+    "",
+    `Materials: ${variation.materials}.`,
+    `Color palette: ${variation.palette}.`,
+    "",
+    "Gemstone rendering: each gemstone must show deep saturated color fill, internal facet lines, multiple bright white sparkle highlights, and realistic light refraction — vivid and glowing.",
+    "Metal rendering: COLORED pencil only — warm golden-yellow strokes for gold, cool blue-silver strokes for silver/platinum. Smooth gradient from bright highlight to shadow. Prong and setting details clearly drawn. ZERO grey monochrome areas.",
+    "",
+    "Composition: single product only, centered, full piece visible, clean white background, generous margins.",
+    "",
+    "Restrictions: no text, no logo, no watermark, no people, no hands, no mannequin, no table, no props, no background scene, no 3D render, no CAD, no photograph. The style must be hand-drawn colored pencil illustration only.",
+  ].filter(Boolean).join("\n");
+}
+
+function buildFluxMoodboardPrompt(variation: MoodboardVariation): string {
+  return [
+    `Create a single isolated ${variation.category} illustration on a white background.`,
+    "",
+    "Style: FULLY FINISHED luxury jewelry concept illustration. Every single surface must use COLORED pencil — NO plain graphite grey anywhere. Metal surfaces: warm champagne-gold and butter-yellow for yellow gold, icy blue-silver and lavender for white gold/silver/platinum, rose-coral and peachy tones for rose gold. Richly and fully colored throughout, luxury catalog quality.",
+    "",
+    `Design: ${variation.design}. Overall feel: ${variation.style}.`,
+    "",
+    `Metal: ${variation.metal}.`,
+    `Gemstones: ${variation.stones}.`,
+    `Color palette: ${variation.palette}.`,
+    "",
+    "Gemstone rendering: deep saturated color, internal facet lines, multiple white sparkle highlights, realistic light refraction.",
+    "Metal rendering: COLORED pencil only — warm golden-yellow for gold, cool blue-silver for platinum/silver. Smooth gradient from highlight to shadow. ZERO grey monochrome areas.",
+    "",
+    "Composition: single product only, centered, full piece visible, clean white background.",
+    "",
+    "Restrictions: no text, no logo, no watermark, no people, no mannequin, no table, no props, no 3D, no CAD, no photograph.",
+    "",
+    "Restrictions: no text, no logo, no watermark, no people, no hands, no mannequin, no table, no props, no background scene, no realistic photograph, no studio photo, no 3D, no CAD, no glossy render.",
+  ].join("\n");
 }
 
 function buildJewelleryImagePrompt(
@@ -450,28 +480,16 @@ function findImage(value: unknown): string | null {
 function findOpenRouterImages(value: unknown): string[] {
   if (!value || typeof value !== "object") return [];
   const record = value as Record<string, unknown>;
-  const choices = Array.isArray(record["choices"]) ? record["choices"] : [];
   const urls: string[] = [];
-  const add = (candidate: unknown) => {
-    const url = normalizeImageUrl(candidate);
+
+  // Standard OpenAI images/generations response: { data: [{ url: "..." } | { b64_json: "..." }] }
+  const data = Array.isArray(record["data"]) ? record["data"] : [];
+  for (const item of data) {
+    const url = normalizeImageUrl(item);
     if (url && !urls.includes(url)) urls.push(url);
-  };
-
-  for (const choice of choices) {
-    if (!choice || typeof choice !== "object") continue;
-    const message = (choice as Record<string, unknown>)["message"];
-    if (!message || typeof message !== "object") continue;
-    const images = (message as Record<string, unknown>)["images"];
-    if (!Array.isArray(images)) continue;
-
-    for (const image of images) {
-      if (!image || typeof image !== "object") continue;
-      const imageUrl = (image as Record<string, unknown>)["image_url"];
-      add(image);
-      add(imageUrl);
-    }
   }
 
+  // Fallback: deep-scan the whole response object
   if (urls.length === 0) collectImageUrls(value, urls);
   return urls;
 }
@@ -707,5 +725,113 @@ function buildMoodboardPrompt(variation: MoodboardVariation, brief: string): str
     "Final check before generating: if the image starts looking photographic, 3D, CAD-like, glossy, or studio-lit, convert it back into a flat 2D colored-pencil sketch with visible graphite outlines and pencil texture.",
   ].filter(Boolean).join("\n");
 }
+
+/* ----------------------------------------------------------
+ * Image → CAD: analyze jewelry photo, return parametric recipe JSON
+ * ---------------------------------------------------------- */
+const imageToCadSchema = z.object({
+  imageBase64: z.string().min(50).max(10_000_000),
+});
+
+const CAD_ANALYZE_PROMPT = `You are an expert jewelry CAD engineer and gemologist. Analyze the jewelry image and extract precise manufacturing parameters. Return ONLY a valid JSON object — no markdown, no explanation, no extra text.
+
+JSON format (all fields required):
+{
+  "jewelryCategory": one of: "ring" | "pendant" | "earring-stud" | "earring-hoop" | "bangle",
+  "metal": one of: "14k-yellow" | "18k-yellow" | "22k-yellow" | "rose-gold" | "white-gold" | "platinum" | "sterling-silver" | "black-rhodium" | "palladium",
+  "centerStone": {
+    "shape": one of: "round-brilliant" | "oval" | "pear" | "princess" | "emerald" | "cushion" | "marquise" | "asscher" | "radiant" | "heart" | "trillion" | "baguette" | "cabochon" | "rose-cut",
+    "diameterMm": estimated diameter in millimeters (number, e.g. 6.5),
+    "material": one of: "diamond" | "ruby" | "sapphire" | "emerald" | "morganite" | "tanzanite" | "aquamarine" | "amethyst" | "garnet" | "topaz" | "opal" | "tourmaline" | "alexandrite" | "spinel" | "pearl"
+  },
+  "settingType": one of: "solitaire" | "cathedral-solitaire" | "bezel" | "half-bezel" | "tension" | "pave" | "micro-pave" | "channel" | "bar" | "flush" | "invisible" | "burnish" | "prong-basket" | "split-prong",
+  "prongCount": 4 or 6 or 8,
+  "hasHalo": true or false,
+  "hasPave": true or false,
+  "shankStyle": one of: "straight" | "cathedral" | "split-shank" | "bypass" | "twisted" | "trellis" | "peg-head" | "double-bypass" | "euro-shank",
+  "bandWidthMm": estimated band width in mm (number, e.g. 2.5),
+  "description": "One sentence describing this jewelry piece",
+  "confidence": confidence score 0.0 to 1.0 (be honest — 0.7 is typical for photos)
+}`;
+
+router.post("/ai/cad/analyze", async (req, res): Promise<void> => {
+  const parsed = imageToCadSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "imageBase64 field required", details: parsed.error.flatten() });
+    return;
+  }
+
+  const { imageBase64 } = parsed.data;
+
+  // Strip data URL prefix if present, keep just base64
+  const base64Only = imageBase64.includes(",") ? imageBase64.split(",")[1]! : imageBase64;
+
+  // Detect mime type
+  const mimeMatch = imageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,/);
+  const mimeType = mimeMatch ? mimeMatch[1]! : "image/jpeg";
+
+  try {
+    const apiKey = process.env["OPENROUTER_API_KEY"];
+    if (!apiKey) {
+      res.status(500).json({ error: "OpenRouter API key not configured" });
+      return;
+    }
+
+    const openRouterRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+        "HTTP-Referer": "http://localhost:5173",
+        "X-Title": "Blink & Bling CAD Analyzer",
+      },
+      body: JSON.stringify({
+        model: "openai/gpt-4o",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: CAD_ANALYZE_PROMPT },
+              { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Only}`, detail: "high" } },
+            ],
+          },
+        ],
+        max_tokens: 1000,
+        temperature: 0.1,
+      }),
+    });
+
+    if (!openRouterRes.ok) {
+      const detail = await openRouterRes.text().catch(() => openRouterRes.statusText);
+      logger.warn({ status: openRouterRes.status, detail }, "OpenRouter vision request failed");
+      res.status(502).json({ error: `Vision model failed (${openRouterRes.status}): ${detail.slice(0, 200)}` });
+      return;
+    }
+
+    const openRouterData = await openRouterRes.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const content = openRouterData?.choices?.[0]?.message?.content ?? "";
+
+    // Extract JSON from the response (strip any accidental markdown fences)
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      logger.warn({ content }, "Vision model returned no JSON");
+      res.status(502).json({ error: "Vision model returned unrecognizable response", raw: content.slice(0, 300) });
+      return;
+    }
+
+    let cadResult: unknown;
+    try {
+      cadResult = JSON.parse(jsonMatch[0]);
+    } catch {
+      res.status(502).json({ error: "Vision model returned invalid JSON", raw: jsonMatch[0].slice(0, 300) });
+      return;
+    }
+
+    res.json(cadResult);
+  } catch (err) {
+    logger.error({ err: safeError(err) }, "Image-to-CAD analysis failed");
+    res.status(500).json({ error: "Internal error during image analysis" });
+  }
+});
 
 export default router;

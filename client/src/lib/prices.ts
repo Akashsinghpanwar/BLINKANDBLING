@@ -124,8 +124,13 @@ export function metalPricePerGramUSD(metal: MetalType, prices: SpotPrices): numb
       // 925 silver (92.5% pure)
       return silverGram * 0.925 * MARKUP;
     case "black-rhodium":
-      // Black rhodium plating is applied over white gold or silver; price like 18k white gold.
       return goldGram * 0.75 * MARKUP * 1.1;
+    case "22k-yellow":
+      return goldGram * 0.916 * MARKUP;
+    case "palladium":
+      return platGram * 0.95 * MARKUP * 0.9;
+    default:
+      return goldGram * 0.75 * MARKUP;
   }
 }
 

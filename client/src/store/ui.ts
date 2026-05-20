@@ -1,18 +1,32 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import type { JewelryCategory } from "./recipe";
 
 export type Mode = "design" | "render" | "analyze";
+
 export type Section =
-  | "dashboard"
-  | "ring"
-  | "centerStone"
-  | "sideStones"
-  | "galleryRails"
-  | "bandDetails"
-  | "engraving"
-  | "settings";
+  // ── Shared / always visible ──
+  | "dashboard" | "image2cad" | "settings"
+  // ── Ring ──
+  | "ring" | "centerStone" | "sideStones" | "galleryRails" | "bandDetails"
+  | "pave" | "eternity" | "threeStone" | "milgrain" | "filigree" | "finish" | "engraving"
+  // ── Pendant ──
+  | "pendant"
+  // ── Earring ──
+  | "earring"
+  // ── Bangle ──
+  | "bangle";
+
 export type Tool = "select" | "move" | "rotate" | "scale" | "mirror" | "measure" | "section" | "explode";
 export type ViewName = "perspective" | "top" | "front" | "right";
+
+export const CATEGORY_SECTIONS: Record<JewelryCategory, Section[]> = {
+  ring: ["ring", "centerStone", "sideStones", "galleryRails", "bandDetails", "pave", "eternity", "threeStone", "milgrain", "filigree", "finish", "engraving"],
+  pendant: ["pendant"],
+  "earring-stud": ["earring"],
+  "earring-hoop": ["earring"],
+  bangle: ["bangle"],
+};
 
 interface UIState {
   designName: string;
@@ -44,7 +58,7 @@ interface UIState {
 export const useUIStore = create<UIState>()(
   persist(
     (set) => ({
-      designName: "Untitled Ring Design",
+      designName: "Untitled Jewelry Design",
       mode: "design",
       section: "ring",
       tool: "select",
@@ -70,21 +84,22 @@ export const useUIStore = create<UIState>()(
       setGalleryTab: (galleryTab) => set({ galleryTab }),
     }),
     {
-      name: "atelier-cad-ui-v2",
-      version: 2,
+      name: "atelier-cad-ui-v3",
+      version: 3,
       partialize: (s) => {
         const { isDragging: _i, editMode: _e, ...rest } = s as UIState & Record<string, unknown>;
         return rest as unknown as UIState;
       },
-      migrate: (persisted) => {
-        const p = (persisted ?? {}) as Partial<UIState>;
-        return { ...p, editMode: false, isDragging: false } as UIState;
+      migrate: () => {
+        return {
+          designName: "Untitled Jewelry Design", mode: "design", section: "ring",
+          tool: "select", view: "perspective", showGrid: false, showShadow: true,
+          showWireframe: false, autoSave: true, galleryTab: "Gallery",
+          editMode: false, isDragging: false,
+        } as UIState;
       },
       onRehydrateStorage: () => (state) => {
-        if (state) {
-          state.editMode = false;
-          state.isDragging = false;
-        }
+        if (state) { state.editMode = false; state.isDragging = false; }
       },
     },
   ),

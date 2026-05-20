@@ -233,5 +233,15 @@ export function buildStone(shape: StoneShape, diameter: number, depthRatio: numb
     case "emerald":         return buildEmerald(diameter, depthRatio);
     case "cushion":         return buildCushion(diameter, depthRatio);
     case "marquise":        return buildMarquise(diameter, depthRatio);
+    // New shapes — approximate with closest existing geometry
+    case "asscher":         return buildEmerald(diameter, depthRatio);         // square emerald cut
+    case "radiant":         return buildCushion(diameter, depthRatio);         // rounded rectangle brilliant
+    case "heart":           return buildOval(diameter, depthRatio, 0.95);      // approximate heart silhouette
+    case "trillion":        return buildPrincess(diameter, depthRatio);        // triangular brilliant
+    case "baguette":        return buildEmerald(diameter * 0.55, depthRatio);  // narrow rectangle step cut
+    case "briolette":       return buildOval(diameter, depthRatio, 0.58);      // tall narrow teardrop
+    case "cabochon":        return buildRoundBrilliant(diameter, 0.30);        // dome, no facets
+    case "rose-cut":        return buildRoundBrilliant(diameter, 0.22);        // flat-bottom dome
+    default:                return buildRoundBrilliant(diameter, depthRatio);
   }
 }
