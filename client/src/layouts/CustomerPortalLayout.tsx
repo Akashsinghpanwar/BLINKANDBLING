@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'wouter'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Box, CreditCard, Images, LayoutDashboard, Lock, LogOut, MessageCircle, Mic2, Sparkles, Timer } from 'lucide-react'
+import { Box, Images, LayoutDashboard, Lock, LogOut, MessageCircle, Mic2, Settings, Sparkles } from 'lucide-react'
 import PageTransition from '../components/PageTransition'
 import BlinkBlingLogo from '../components/BlinkBlingLogo'
 import { useProjects } from '../context/ProjectContext'
@@ -17,7 +17,10 @@ const navItems = [
   { name: 'Designs', path: '/portal/magic-movement', icon: Sparkles, feature: 'designs' as const },
   { name: 'User Gallery', path: '/portal/gallery', icon: Images, feature: 'gallery' as const },
   { name: '3D Preview', path: '/portal/3d-studio', icon: Box, feature: 'cad' as const },
-{ name: 'Payments', path: '/portal/payments', icon: CreditCard, feature: 'payments' as const },
+]
+
+const bottomNavItems = [
+  { name: 'Settings', path: '/portal/settings', icon: Settings, feature: 'overview' as const },
 ]
 
 interface Props { children: React.ReactNode }
@@ -174,6 +177,30 @@ export default function CustomerPortalLayout({ children }: Props) {
                 </Link>
               )
             })}
+
+            {/* Bottom nav — Settings pinned at the bottom */}
+            <div style={{ marginTop: 'auto', paddingTop: 8, borderTop: '1px solid var(--bb-line)' }}>
+              {bottomNavItems.map(item => {
+                const active = isActive(item.path)
+                return (
+                  <Link
+                    key={item.path}
+                    href={item.path}
+                    className="bb-portal-nav-link"
+                    style={{
+                      color: active ? 'var(--bb-ink)' : 'var(--bb-muted)',
+                      background: active ? '#fff' : 'transparent',
+                      border: `1px solid ${active ? '#efd9d0' : 'transparent'}`,
+                      boxShadow: active ? 'var(--bb-soft-shadow)' : 'none',
+                    }}
+                  >
+                    <item.icon size={18} style={{ color: active ? 'var(--bb-rose)' : 'inherit', flexShrink: 0 }} />
+                    <span className="bb-portal-nav-label">{item.name}</span>
+                    {active && <motion.span layoutId="portal-active-dot" className="bb-portal-nav-dot" />}
+                  </Link>
+                )
+              })}
+            </div>
           </nav>
         </aside>
 

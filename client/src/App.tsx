@@ -29,7 +29,7 @@ import Settings from './views/internal/Settings'
 import CustomerDashboard from './views/customer/CustomerDashboard'
 import CustomerPortalLuna from './views/customer/CustomerPortalLuna'
 import CustomerTimeline from './views/customer/CustomerTimeline'
-import CustomerPayments from './views/customer/CustomerPayments'
+import CustomerSettings from './views/customer/CustomerSettings'
 import UserGallery from './views/customer/UserGallery'
 import { getMe, type AuthUser } from './lib/auth'
 
@@ -108,7 +108,8 @@ function PortalPage() {
     if (sub === 'magic-movement') return access.designs ? <MagicMovement /> : <LockedCustomerFeature label="Designs" />
     if (sub === '3d-studio') return access.cad ? <Studio3D /> : <LockedCustomerFeature label="3D / CAD" />
     if (sub === 'timeline') return access.timeline ? <CustomerTimeline /> : <LockedCustomerFeature label="Timeline" />
-    if (sub === 'payments') return access.payments ? <CustomerPayments /> : <LockedCustomerFeature label="Payments" />
+    if (sub === 'settings') return <CustomerSettings />
+    if (sub === 'payments') return <CustomerSettings />  // legacy redirect
     return <CustomerDashboard />
   }
 

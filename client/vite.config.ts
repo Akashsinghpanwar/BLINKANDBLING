@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { VitePWA } from "vite-plugin-pwa";
 import path from "path";
 
 const rawPort = process.env.PORT ?? "5173";
@@ -15,7 +16,41 @@ const apiProxyTarget = process.env.API_PROXY_TARGET ?? "http://localhost:5000";
 
 export default defineConfig({
   base: basePath,
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    VitePWA({
+      registerType: "autoUpdate",
+      includeAssets: ["favicon.svg", "icon-192.svg", "icon-512.svg"],
+      manifest: {
+        name: "Blink & Bling",
+        short_name: "Blink & Bling",
+        description: "Luxury jewellery design platform for modern jewellers",
+        theme_color: "#0e0a0c",
+        background_color: "#0e0a0c",
+        display: "standalone",
+        orientation: "portrait-primary",
+        scope: "/",
+        start_url: "/",
+        icons: [
+          { src: "/icon-192.svg", sizes: "192x192", type: "image/svg+xml", purpose: "any maskable" },
+          { src: "/icon-512.svg", sizes: "512x512", type: "image/svg+xml", purpose: "any maskable" },
+        ],
+      },
+      workbox: {
+        globPatterns: ["**/*.{js,css,html,svg,woff2}"],
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        runtimeCaching: [
+          {
+            urlPattern: /^\/api\//,
+            handler: "NetworkFirst",
+            options: { cacheName: "api-cache", networkTimeoutSeconds: 10 },
+          },
+        ],
+      },
+      devOptions: { enabled: true },
+    }),
+  ],
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'wouter'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Bell, LayoutDashboard, LogOut, Search, Users } from 'lucide-react'
+import { Bell, LayoutDashboard, LogOut, Search, Settings, Users } from 'lucide-react'
 import PageTransition from '../components/PageTransition'
 import BlinkBlingLogo from '../components/BlinkBlingLogo'
 import { logout } from '../lib/auth'
@@ -10,6 +10,10 @@ import { useUnreadMessages } from '../hooks/useUnreadMessages'
 const navItems = [
   { name: 'Overview', path: '/workspace', icon: LayoutDashboard },
   { name: 'Clients', path: '/workspace/customers', icon: Users },
+]
+
+const bottomNavItems = [
+  { name: 'Settings', path: '/workspace/settings', icon: Settings },
 ]
 
 interface Props { children: React.ReactNode }
@@ -116,6 +120,43 @@ export default function InternalLayout({ children }: Props) {
               </Link>
             )
           })}
+
+          {/* Settings pinned at the bottom */}
+          <div style={{ marginTop: 'auto', paddingTop: 8, borderTop: '1px solid rgba(232,222,216,0.55)' }}>
+            {bottomNavItems.map(item => {
+              const active = isActive(item.path)
+              return (
+                <Link
+                  key={item.path}
+                  href={item.path}
+                  style={{
+                    position: 'relative', display: 'flex', alignItems: 'center',
+                    gap: 12, minHeight: 48, padding: '9px 12px', borderRadius: 12,
+                    textDecoration: 'none',
+                    border: `1px solid ${active ? '#efd9d0' : 'transparent'}`,
+                    color: active ? 'var(--bb-ink)' : 'var(--bb-muted)',
+                    background: active ? '#fff' : 'transparent',
+                    boxShadow: active ? 'var(--bb-soft-shadow)' : 'none',
+                  }}
+                >
+                  <item.icon size={20} style={{ flexShrink: 0, color: active ? 'var(--bb-rose)' : 'inherit' }} />
+                  <AnimatePresence>
+                    {expanded && (
+                      <motion.span
+                        initial={{ opacity: 0, x: -6 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -6 }}
+                        transition={{ duration: 0.16 }}
+                        style={{ whiteSpace: 'nowrap' }}
+                      >
+                        <strong style={{ fontSize: '0.92rem', lineHeight: 1.15, fontWeight: 700 }}>{item.name}</strong>
+                      </motion.span>
+                    )}
+                  </AnimatePresence>
+                </Link>
+              )
+            })}
+          </div>
         </nav>
       </aside>
 
