@@ -27,12 +27,12 @@ const bottomNavItems = [
 interface Props { children: React.ReactNode }
 
 function usePortalCompact() {
-  const [compact, setCompact] = useState(false)
+  // Initialize from matchMedia so first render is already correct on mobile
+  const [compact, setCompact] = useState(() => window.matchMedia(PORTAL_COMPACT_MQ).matches)
 
   useEffect(() => {
     const mql = window.matchMedia(PORTAL_COMPACT_MQ)
     const onChange = () => setCompact(mql.matches)
-    onChange()
     mql.addEventListener('change', onChange)
     return () => mql.removeEventListener('change', onChange)
   }, [])
@@ -171,27 +171,32 @@ export default function CustomerPortalLayout({ children }: Props) {
                   key={item.path}
                   href={item.path}
                   className="bb-portal-nav-link"
-                  style={{
+                  style={isCompact ? {
+                    color: active ? 'var(--bb-rose)' : 'var(--bb-muted)',
+                  } : {
                     color: active ? 'var(--bb-ink)' : 'var(--bb-muted)',
                     background: active ? '#fff' : 'transparent',
                     border: `1px solid ${active ? '#efd9d0' : 'transparent'}`,
                     boxShadow: active ? 'var(--bb-soft-shadow)' : 'none',
                   }}
                 >
-                  <item.icon size={18} style={{ color: active ? 'var(--bb-rose)' : 'inherit', flexShrink: 0 }} />
+                  <item.icon size={isCompact ? 22 : 18} style={{ color: active ? 'var(--bb-rose)' : 'inherit', flexShrink: 0 }} />
                   <span className="bb-portal-nav-label">{item.name}</span>
                   {locked && (
                     <Lock size={13} className="bb-portal-nav-lock" style={{ color: 'var(--bb-muted)' }} />
                   )}
-                  {active && (
+                  {active && !isCompact && (
                     <motion.span layoutId="portal-active-dot" className="bb-portal-nav-dot" />
                   )}
                 </Link>
               )
             })}
 
-            {/* Bottom nav — Settings pinned at the bottom */}
-            <div style={{ marginTop: 'auto', paddingTop: 8, borderTop: '1px solid var(--bb-line)' }}>
+            {/* Bottom nav — Settings pinned at the bottom (in column) / inline (in mobile row) */}
+            <div style={isCompact
+              ? { display: 'flex', flexDirection: 'row', alignItems: 'stretch' }
+              : { marginTop: 'auto', paddingTop: 8, borderTop: '1px solid var(--bb-line)' }
+            }>
               {bottomNavItems.map(item => {
                 const active = isActive(item.path)
                 return (
@@ -199,16 +204,18 @@ export default function CustomerPortalLayout({ children }: Props) {
                     key={item.path}
                     href={item.path}
                     className="bb-portal-nav-link"
-                    style={{
+                    style={isCompact ? {
+                      color: active ? 'var(--bb-rose)' : 'var(--bb-muted)',
+                    } : {
                       color: active ? 'var(--bb-ink)' : 'var(--bb-muted)',
                       background: active ? '#fff' : 'transparent',
                       border: `1px solid ${active ? '#efd9d0' : 'transparent'}`,
                       boxShadow: active ? 'var(--bb-soft-shadow)' : 'none',
                     }}
                   >
-                    <item.icon size={18} style={{ color: active ? 'var(--bb-rose)' : 'inherit', flexShrink: 0 }} />
+                    <item.icon size={isCompact ? 22 : 18} style={{ color: active ? 'var(--bb-rose)' : 'inherit', flexShrink: 0 }} />
                     <span className="bb-portal-nav-label">{item.name}</span>
-                    {active && <motion.span layoutId="portal-active-dot" className="bb-portal-nav-dot" />}
+                    {active && !isCompact && <motion.span layoutId="portal-active-dot" className="bb-portal-nav-dot" />}
                   </Link>
                 )
               })}
@@ -229,7 +236,13 @@ export default function CustomerPortalLayout({ children }: Props) {
             exit={{ opacity: 0, y: 16, scale: 0.96 }}
             transition={{ duration: 0.25, ease: [0.22, 0.9, 0.32, 1] }}
             className="bb-portal-messenger"
-            style={{ position: 'fixed', right: 24, bottom: 24, zIndex: 80 }}
+            style={isCompact ? {
+              position: 'fixed', left: 12, right: 12,
+              bottom: `calc(72px + env(safe-area-inset-bottom, 0px))`,
+              zIndex: 80,
+            } : {
+              position: 'fixed', right: 24, bottom: 24, zIndex: 80,
+            }}
           >
             {portalProject
               ? <ProjectMessenger project={portalProject} viewer="customer" onClose={() => setShowMessenger(false)} />
