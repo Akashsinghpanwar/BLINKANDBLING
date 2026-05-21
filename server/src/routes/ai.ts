@@ -665,7 +665,7 @@ function getOpenAIModel() {
 function getOpenRouterImageModel() {
   return process.env["OPENROUTER_IMAGE_MODEL"]
     || process.env["OPENROUTER_MODEL"]
-    || "black-forest-labs/flux-1.1-pro";
+    || "openai/gpt-5.4-image-2";
 }
 
 function findImage(value: unknown): string | null {
