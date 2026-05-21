@@ -47,6 +47,8 @@ type RenderJob = {
   id: string;
   status: RenderJobStatus;
   request: GenerateRequest;
+  moodboardVariation?: MoodboardVariation;
+  moodboardBrief?: string;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;
@@ -112,6 +114,38 @@ router.post("/ai-render/moodboard", async (req, res): Promise<void> => {
     logger.warn({ err: safeError(error) }, "Moodboard generation failed");
     res.status(502).json({ error: error instanceof Error ? error.message : "Moodboard generation failed" });
   }
+});
+
+/* Moodboard via async job queue — each image is an independent job so
+   the HTTP response returns instantly (no 30-second Render timeout). */
+router.post("/ai-render/moodboard-jobs", (req, res): void => {
+  const parsed = moodboardSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+    return;
+  }
+
+  const { category, brief, count } = parsed.data;
+  const variations = buildMoodboardVariations(category, count);
+  pruneRenderJobs();
+
+  const now = new Date().toISOString();
+  const jobs = variations.map((variation) => {
+    const job: RenderJob = {
+      id: randomUUID(),
+      status: "queued",
+      request: { prompt: brief || "", category, imagePrompt: "", references: [], count: 1 },
+      moodboardVariation: variation,
+      moodboardBrief: brief || "",
+      createdAt: now,
+      updatedAt: now,
+    };
+    renderJobs.set(job.id, job);
+    void runRenderJob(job.id);
+    return serializeRenderJob(job);
+  });
+
+  res.status(202).json({ jobs });
 });
 
 router.post("/ai-render/generate", async (req, res): Promise<void> => {
@@ -190,7 +224,9 @@ async function runRenderJob(id: string) {
   job.updatedAt = startedAt;
 
   try {
-    const result = await generateImage(job.request);
+    const result = job.moodboardVariation
+      ? await generateMoodboardImage(job.moodboardVariation, job.moodboardBrief || "")
+      : await generateImage(job.request);
     const finishedAt = new Date().toISOString();
     job.status = "completed";
     job.result = result;
@@ -218,6 +254,8 @@ function serializeRenderJob(job: RenderJob) {
     finishedAt: job.finishedAt,
     result: job.result,
     error: job.error,
+    moodboardLabel: job.moodboardVariation?.label,
+    moodboardCategory: job.moodboardVariation?.category,
   };
 }
 
@@ -275,6 +313,41 @@ async function generateImage(request: GenerateRequest) {
     ? image
     : `data:image/png;base64,${image}`;
   return { imageUrl, images: [{ angle: variation.label, url: imageUrl }] };
+}
+
+async function generateMoodboardImage(variation: MoodboardVariation, brief: string) {
+  if ((process.env["OPENAI_PROVIDER"] || "").toLowerCase() === "openrouter") {
+    const finalPrompt = buildFluxMoodboardPrompt(variation);
+    const response = await callOpenRouterImage(finalPrompt, []);
+    const images = findOpenRouterImages(response);
+    const url = images[0];
+    if (!url) throw new Error("OpenRouter did not return a moodboard image");
+    return {
+      imageUrl: url,
+      images: [{ angle: variation.label, url }],
+      moodboardLabel: variation.label,
+      moodboardCategory: variation.category,
+    };
+  }
+
+  const prompt = buildMoodboardPrompt(variation, brief);
+  const body = {
+    model: getOpenAIModel(),
+    input: `${JEWELLERY_STYLE_SYSTEM}\n\n${prompt}`,
+    tools: [{ type: "image_generation", action: "generate" }],
+  };
+  const response = await callAzureResponses(body);
+  const image = findImage(response);
+  if (!image) throw new Error("Azure did not return a moodboard image");
+  const url = image.startsWith("data:image/") || /^https?:\/\//i.test(image)
+    ? image
+    : `data:image/png;base64,${image}`;
+  return {
+    imageUrl: url,
+    images: [{ angle: variation.label, url }],
+    moodboardLabel: variation.label,
+    moodboardCategory: variation.category,
+  };
 }
 
 async function generateOpenRouterImages(
@@ -591,8 +664,8 @@ function getOpenAIModel() {
 
 function getOpenRouterImageModel() {
   return process.env["OPENROUTER_IMAGE_MODEL"]
-    || process.env["OPENAI_IMAGE_MODEL"]
-    || "openai/gpt-5.4-image-2";
+    || process.env["OPENROUTER_MODEL"]
+    || "black-forest-labs/flux-1.1-pro";
 }
 
 function findImage(value: unknown): string | null {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Gem, Heart, Sparkles, Plus, RefreshCcw, Watch, Crown,
@@ -91,6 +91,7 @@ export default function MagicMoodboard({
   const [isLoading, setIsLoading] = useState(false)
   const [liked, setLiked] = useState<Set<string>>(new Set())
   const [hasGenerated, setHasGenerated] = useState(false)
+  const pendingJobsRef = useRef<Set<string>>(new Set())
 
   // Auto-select category from Luna's intake DNA
   useEffect(() => {
@@ -108,64 +109,81 @@ export default function MagicMoodboard({
     if (match) setCategory(match.id)
   }, [autoCategory])
 
+  const pollJob = useCallback(async (jobId: string, expectedLabel: string, expectedCategory: string) => {
+    const POLL_INTERVAL = 3500
+    const MAX_POLLS = 52  // ~3 minutes
+
+    for (let i = 0; i < MAX_POLLS; i++) {
+      await new Promise(r => window.setTimeout(r, POLL_INTERVAL))
+      if (!pendingJobsRef.current.has(jobId)) return  // cancelled
+
+      try {
+        const res = await fetch(`/api/ai-render/jobs/${jobId}`, { cache: 'no-store' })
+        if (!res.ok) continue
+        const job = await res.json()
+
+        if (job.status === 'completed') {
+          const url = job.result?.images?.[0]?.url || job.result?.imageUrl
+          if (url) {
+            setImages(prev => [...prev, {
+              id: jobId,
+              url,
+              label: job.moodboardLabel || expectedLabel,
+              category: job.moodboardCategory || expectedCategory,
+              prompt: '',
+            }])
+          }
+          pendingJobsRef.current.delete(jobId)
+          if (pendingJobsRef.current.size === 0) setIsLoading(false)
+          return
+        }
+
+        if (job.status === 'failed') {
+          pendingJobsRef.current.delete(jobId)
+          if (pendingJobsRef.current.size === 0) setIsLoading(false)
+          return
+        }
+      } catch {
+        // network hiccup — keep polling
+      }
+    }
+
+    // timeout
+    pendingJobsRef.current.delete(jobId)
+    if (pendingJobsRef.current.size === 0) setIsLoading(false)
+  }, [])
+
   const generateConcepts = useCallback(async () => {
+    // Cancel any previous polls
+    pendingJobsRef.current.clear()
     setIsLoading(true)
     setImages([])
     setHasGenerated(true)
 
     try {
-      const briefText = lunaBrief || ''
       const count = compact ? 4 : 6
-
-      const res = await fetch('/api/ai-render/moodboard', {
+      const res = await fetch('/api/ai-render/moodboard-jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          category,
-          brief: briefText,
-          count,
-        }),
-      }).catch(() => null)
+        body: JSON.stringify({ category, brief: lunaBrief || '', count }),
+      })
 
-      const data = await res?.json().catch(() => null)
+      if (!res.ok) throw new Error(`Server error ${res.status}`)
+      const data = await res.json()
 
-      if (Array.isArray(data?.images) && data.images.length > 0) {
-        setImages(data.images.map((img: { url: string; label: string; category: string; prompt: string }, i: number) => ({
-          id: `mood_${Date.now()}_${i}`,
-          url: img.url,
-          label: img.label || `Concept ${i + 1}`,
-          category: img.category || category,
-          prompt: img.prompt || '',
-        })))
-      } else {
-        // Fallback: use the existing generate endpoint
-        const fallbackRes = await fetch('/api/ai-render/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt: `${category} design, luxury jewellery, colorful pencil sketch. ${briefText}`.trim(),
-            references: [],
-            count,
-          }),
-        }).catch(() => null)
-        const fallbackData = await fallbackRes?.json().catch(() => null)
+      if (!Array.isArray(data?.jobs) || data.jobs.length === 0) {
+        throw new Error('No jobs returned')
+      }
 
-        if (Array.isArray(fallbackData?.images) && fallbackData.images.length > 0) {
-          setImages(fallbackData.images.map((img: { url: string; angle: string }, i: number) => ({
-            id: `mood_${Date.now()}_${i}`,
-            url: img.url,
-            label: img.angle || `Concept ${i + 1}`,
-            category,
-            prompt: '',
-          })))
-        }
+      // Kick off a poll loop for every job
+      for (const job of data.jobs) {
+        pendingJobsRef.current.add(job.id)
+        void pollJob(job.id, job.moodboardLabel || category, job.moodboardCategory || category)
       }
     } catch {
-      // silently fail — user can retry
-    } finally {
       setIsLoading(false)
     }
-  }, [category, lunaBrief, compact])
+  }, [category, lunaBrief, compact, pollJob])
 
   const toggleLike = (id: string) => {
     setLiked(prev => {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'wouter'
+import { useIsMobileLayout } from '../hooks/useLayoutMode'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Box, Images, LayoutDashboard, Lock, LogOut, MessageCircle, Mic2, Settings, Sparkles } from 'lucide-react'
 import PageTransition from '../components/PageTransition'
@@ -9,7 +10,6 @@ import ProjectMessenger from '../components/ProjectMessenger'
 import { useUnreadMessages } from '../hooks/useUnreadMessages'
 import { markRead } from '../lib/messages'
 
-const PORTAL_COMPACT_MQ = '(max-width: 920px)'
 const AVATAR_KEY = 'bb-customer-avatar'
 
 const navItems = [
@@ -26,26 +26,12 @@ const bottomNavItems = [
 
 interface Props { children: React.ReactNode }
 
-function usePortalCompact() {
-  // Initialize from matchMedia so first render is already correct on mobile
-  const [compact, setCompact] = useState(() => window.matchMedia(PORTAL_COMPACT_MQ).matches)
-
-  useEffect(() => {
-    const mql = window.matchMedia(PORTAL_COMPACT_MQ)
-    const onChange = () => setCompact(mql.matches)
-    mql.addEventListener('change', onChange)
-    return () => mql.removeEventListener('change', onChange)
-  }, [])
-
-  return compact
-}
-
 export default function CustomerPortalLayout({ children }: Props) {
   const [location, navigate] = useLocation()
   const [showMessenger, setShowMessenger] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [avatarSrc, setAvatarSrc] = useState<string | null>(() => localStorage.getItem(AVATAR_KEY))
-  const isCompact = usePortalCompact()
+  const isCompact = useIsMobileLayout()
   const { portalProject } = useProjects()
   const { unread, markAllRead } = useUnreadMessages()
   const hasUnread = unread.total > 0

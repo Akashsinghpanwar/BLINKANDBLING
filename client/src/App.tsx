@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import LayoutModeSelector from './components/LayoutModeSelector'
+import { hasChosenLayoutMode } from './hooks/useLayoutMode'
 import { Switch, Route, Redirect, Router as WouterRouter, useLocation } from 'wouter'
 import { AppProvider } from './context/AppContext'
 import { ProjectProvider, useProjects } from './context/ProjectContext'
@@ -168,6 +170,7 @@ function AppWarmup() {
 
 export default function App() {
   const base = import.meta.env.BASE_URL.replace(/\/$/, '')
+  const [showModeSelector, setShowModeSelector] = useState(() => !hasChosenLayoutMode())
   return (
     <AppProvider>
       <AppWarmup />
@@ -177,6 +180,7 @@ export default function App() {
         </WouterRouter>
         <ToastContainer />
       </ProjectProvider>
+      {showModeSelector && <LayoutModeSelector onDismiss={() => setShowModeSelector(false)} />}
     </AppProvider>
   )
 }

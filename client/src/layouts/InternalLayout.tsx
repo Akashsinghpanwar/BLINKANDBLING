@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Link, useLocation } from 'wouter'
+import { useIsMobileLayout } from '../hooks/useLayoutMode'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Bell, LayoutDashboard, LogOut, Search, Settings, Users } from 'lucide-react'
 import PageTransition from '../components/PageTransition'
@@ -18,21 +19,10 @@ const bottomNavItems = [
 
 interface Props { children: React.ReactNode }
 
-function useIsMobile() {
-  const [mobile, setMobile] = useState(() => window.innerWidth <= 920)
-  useEffect(() => {
-    const mql = window.matchMedia('(max-width: 920px)')
-    const onChange = () => setMobile(mql.matches)
-    mql.addEventListener('change', onChange)
-    return () => mql.removeEventListener('change', onChange)
-  }, [])
-  return mobile
-}
-
 export default function InternalLayout({ children }: Props) {
   const [location, navigate] = useLocation()
   const [hovering, setHovering] = useState(false)
-  const isMobile = useIsMobile()
+  const isMobile = useIsMobileLayout()
   const expanded = hovering && !isMobile
   const { unread } = useUnreadMessages()
 
