@@ -330,8 +330,9 @@ export default function MagicMovement() {
                 fontFamily: "'Pinyon Script', cursive",
                 color: 'var(--bb-rose)', fontSize: '1.2em',
                 display: 'inline-block', paddingBottom: '0.06em', lineHeight: 1,
-              }}>Movement</span>
-              <span>.</span>
+              }}>
+                Movement<span style={{ fontFamily: 'var(--app-font-display)', color: 'var(--bb-ink)', fontSize: '0.78em' }}>.</span>
+              </span>
             </h1>
           </div>
         </header>
