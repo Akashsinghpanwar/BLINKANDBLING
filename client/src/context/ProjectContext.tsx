@@ -383,11 +383,22 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    Promise.all([refreshGallery(), refreshProjects(), refreshCadFiles()])
-      .finally(() => setIsLoading(false))
+    let alive = true
+    const projectsLoad = refreshProjects()
+
+    void Promise.allSettled([projectsLoad, refreshGallery(), refreshCadFiles()])
+    void Promise.race([
+      projectsLoad.catch(() => undefined),
+      new Promise(resolve => window.setTimeout(resolve, 2500)),
+    ]).finally(() => {
+      if (alive) setIsLoading(false)
+    })
+
+    return () => { alive = false }
   }, [])
 
   useEffect(() => {
+    if (!activeProject?.id && !portalProject?.id) return
     void refreshCadFiles()
   }, [activeProject?.id, portalProject?.id])
 

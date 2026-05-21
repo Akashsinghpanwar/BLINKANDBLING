@@ -38,7 +38,9 @@ declare module "express-session" {
   }
 }
 
-async function ensureCustomerTables() {
+let customerTablesReady: Promise<void> | null = null;
+
+async function runCustomerTableSetup() {
   await pool.query(`
     create table if not exists bb_customer_workspaces (
       id uuid primary key default gen_random_uuid(),
@@ -88,6 +90,16 @@ async function ensureCustomerTables() {
        or not (feature_access ? 'timeline')
        or not (feature_access ? 'payments');
   `);
+}
+
+async function ensureCustomerTables() {
+  if (!customerTablesReady) {
+    customerTablesReady = runCustomerTableSetup().catch((err: unknown) => {
+      customerTablesReady = null;
+      throw err;
+    });
+  }
+  return customerTablesReady;
 }
 
 function normalizeNamePrefix(name: string) {

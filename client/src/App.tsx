@@ -151,10 +151,26 @@ function Router() {
   )
 }
 
+function AppWarmup() {
+  useEffect(() => {
+    const controller = new AbortController()
+    void fetch('/api/healthz/warmup', {
+      credentials: 'include',
+      cache: 'no-store',
+      signal: controller.signal,
+    }).catch(() => {})
+
+    return () => controller.abort()
+  }, [])
+
+  return null
+}
+
 export default function App() {
   const base = import.meta.env.BASE_URL.replace(/\/$/, '')
   return (
     <AppProvider>
+      <AppWarmup />
       <ProjectProvider>
         <WouterRouter base={base}>
           <Router />

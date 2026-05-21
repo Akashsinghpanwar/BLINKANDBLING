@@ -15,7 +15,9 @@ const cadFileSchema = z.object({
   projectId: z.string().uuid().optional(),
 });
 
-async function ensureCadTables() {
+let cadTablesReady: Promise<void> | null = null;
+
+async function runCadTableSetup() {
   await pool.query(`
     create table if not exists bb_cad_files (
       id uuid primary key default gen_random_uuid(),
@@ -37,6 +39,16 @@ async function ensureCadTables() {
     create index if not exists idx_bb_cad_files_project_created
       on bb_cad_files(project_id, created_at desc);
   `);
+}
+
+async function ensureCadTables() {
+  if (!cadTablesReady) {
+    cadTablesReady = runCadTableSetup().catch((err: unknown) => {
+      cadTablesReady = null;
+      throw err;
+    });
+  }
+  return cadTablesReady;
 }
 
 function ownerId(req: { session?: { userId?: string; customerProjectId?: string } }) {

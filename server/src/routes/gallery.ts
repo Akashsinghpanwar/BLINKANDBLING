@@ -21,7 +21,9 @@ const renameFolderSchema = z.object({
   name: z.string().min(1).max(200),
 });
 
-async function ensureGalleryTables() {
+let galleryTablesReady: Promise<void> | null = null;
+
+async function runGalleryTableSetup() {
   await pool.query(`
     create table if not exists bb_gallery_folders (
       id uuid primary key default gen_random_uuid(),
@@ -49,6 +51,16 @@ async function ensureGalleryTables() {
     create index if not exists idx_bb_gallery_images_folder
       on bb_gallery_images(folder_id, created_at asc);
   `);
+}
+
+async function ensureGalleryTables() {
+  if (!galleryTablesReady) {
+    galleryTablesReady = runGalleryTableSetup().catch((err: unknown) => {
+      galleryTablesReady = null;
+      throw err;
+    });
+  }
+  return galleryTablesReady;
 }
 
 function ownerId(req: { session?: { userId?: string } }) {

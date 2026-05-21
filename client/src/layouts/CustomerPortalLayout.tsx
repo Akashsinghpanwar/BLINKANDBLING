@@ -114,7 +114,7 @@ export default function CustomerPortalLayout({ children }: Props) {
               const opening = !showMessenger
               setShowMessenger(v => !v)
               if (opening && portalProject) {
-                markAllRead(portalProject.id, 'customer')
+                void markRead(portalProject.id, 'customer')
                 markAllRead(portalProject.id)
               }
             }}

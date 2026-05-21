@@ -3,9 +3,9 @@ import { pool } from "@workspace/db";
 
 const router: IRouter = Router();
 
-let tableReady = false;
-async function ensureTable() {
-  if (tableReady) return;
+let tableReady: Promise<void> | null = null;
+
+async function runTableSetup() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS bb_messages (
       id VARCHAR(120) PRIMARY KEY,
@@ -20,7 +20,16 @@ async function ensureTable() {
     CREATE INDEX IF NOT EXISTS idx_bb_messages_project
       ON bb_messages(project_id, created_at ASC);
   `);
-  tableReady = true;
+}
+
+async function ensureTable() {
+  if (!tableReady) {
+    tableReady = runTableSetup().catch((err: unknown) => {
+      tableReady = null;
+      throw err;
+    });
+  }
+  return tableReady;
 }
 
 // GET /api/messages/unread-counts  – returns unread count for authenticated user

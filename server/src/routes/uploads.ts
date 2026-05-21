@@ -3,9 +3,9 @@ import { pool } from "@workspace/db";
 
 const router: IRouter = Router();
 
-let tableReady = false;
-async function ensureTable() {
-  if (tableReady) return;
+let tableReady: Promise<void> | null = null;
+
+async function runTableSetup() {
   // Split into separate statements — some PG drivers reject multiple DDL in one query()
   await pool.query(`
     CREATE TABLE IF NOT EXISTS bb_uploads (
@@ -21,7 +21,16 @@ async function ensureTable() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_bb_uploads_project ON bb_uploads(project_id, created_at DESC)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_bb_uploads_user ON bb_uploads(user_id, created_at DESC)`);
-  tableReady = true;
+}
+
+async function ensureTable() {
+  if (!tableReady) {
+    tableReady = runTableSetup().catch((err: unknown) => {
+      tableReady = null;
+      throw err;
+    });
+  }
+  return tableReady;
 }
 
 // GET /api/uploads
