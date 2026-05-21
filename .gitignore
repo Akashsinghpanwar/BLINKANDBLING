@@ -39,3 +39,4 @@ Thumbs.db
 # Misc
 coverage/
 tmp/
+client/dev-dist/
