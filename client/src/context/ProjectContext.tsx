@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react'
+import { lsGet, lsSet, lsClear, idbGet, idbSet } from '../lib/localCache'
 
 export interface Customer {
   id: string
@@ -178,10 +179,11 @@ const INITIAL_PROJECTS: Project[] = [
 const ProjectContext = createContext<ProjectContextValue | null>(null)
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
-  const [isLoading, setIsLoading] = useState(true)
-  const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS)
+  // Hydrate from cache synchronously — UI renders with stale data instantly
+  const [isLoading, setIsLoading] = useState(() => !lsGet<Project[]>('projects'))
+  const [projects, setProjects] = useState<Project[]>(() => lsGet<Project[]>('projects') || INITIAL_PROJECTS)
   const [activeProject, setActiveProjectState] = useState<Project | null>(null)
-  const [portalProject, setPortalProject] = useState<Project | null>(null)
+  const [portalProject, setPortalProject] = useState<Project | null>(() => lsGet<Project>('portal-project'))
   const [intakeDNA, setIntakeDNAState] = useState<IntakeDNA | null>(null)
   const [aiGeneratedFolders, setAiGeneratedFolders] = useState<GalleryFolder[]>([])
   const [editorImage, setEditorImage] = useState<GalleryImage | null>(null)
@@ -202,6 +204,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     const data = await res.json()
     if (Array.isArray(data?.customers) && data.customers.length) {
       setProjects(data.customers)
+      lsSet('projects', data.customers)
       setActiveProjectState(prev => prev ? data.customers.find((p: Project) => p.id === prev.id) || prev : null)
     }
   }, [])
@@ -222,11 +225,13 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     const res = await fetch('/api/portal/project', { credentials: 'include' })
     if (!res.ok) {
       setPortalProject(null)
+      lsClear('portal-project')
       return null
     }
     const data = await res.json()
     const project = data?.project as Project | undefined
     setPortalProject(project || null)
+    if (project) lsSet('portal-project', project)
     return project || null
   }, [])
   const applyProjectUpdate = (project: Project) => {
@@ -277,13 +282,15 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     if (!res.ok) return
     const data = await res.json()
     const folders = Array.isArray(data?.folders) ? data.folders : []
-    setAiGeneratedFolders(folders.map((folder: GalleryFolder) => ({
+    const mapped = folders.map((folder: GalleryFolder) => ({
       ...folder,
       source: 'ai',
       images: Array.isArray(folder.images)
-        ? folder.images.map(image => ({ ...image, source: 'ai' as const }))
+        ? folder.images.map((image: GalleryImage) => ({ ...image, source: 'ai' as const }))
         : [],
-    })))
+    }))
+    setAiGeneratedFolders(mapped)
+    void idbSet('gallery', mapped)
   }
   const saveAiGeneratedFolder = async (folder: { name?: string; prompt?: string; images: Array<Omit<GalleryImage, 'id' | 'createdAt' | 'source'>> }) => {
     const res = await fetch('/api/gallery/folders', {
@@ -384,8 +391,13 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let alive = true
-    const projectsLoad = refreshProjects()
 
+    // Hydrate gallery from IndexedDB (async, doesn't block render)
+    idbGet<GalleryFolder[]>('gallery').then(cached => {
+      if (cached && alive) setAiGeneratedFolders(cached)
+    })
+
+    const projectsLoad = refreshProjects()
     void Promise.allSettled([projectsLoad, refreshGallery(), refreshCadFiles()])
     void Promise.race([
       projectsLoad.catch(() => undefined),

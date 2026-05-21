@@ -64,6 +64,8 @@ export async function resetPasswordDirect(input: {
 
 export async function logout(): Promise<void> {
   await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+  const { clearAllCache } = await import('./localCache')
+  await clearAllCache()
 }
 
 export async function getMe(): Promise<AuthUser | null> {

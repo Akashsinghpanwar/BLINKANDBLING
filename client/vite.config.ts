@@ -47,9 +47,10 @@ export default defineConfig({
             handler: "NetworkOnly",
           },
           {
+            // Data endpoints — serve cached instantly, refresh in background
             urlPattern: /^\/api\//,
-            handler: "NetworkFirst",
-            options: { cacheName: "api-cache", networkTimeoutSeconds: 60 },
+            handler: "StaleWhileRevalidate",
+            options: { cacheName: "api-cache" },
           },
         ],
       },

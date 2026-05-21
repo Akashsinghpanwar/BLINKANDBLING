@@ -309,7 +309,7 @@ export default function MagicMovement() {
    * RENDER
    * ───────────────────────────────────────── */
   return (
-    <div className="bb-page" data-testid="magic-movement" style={{ position: 'relative' }}>
+    <div className="bb-page bb-mm-page" data-testid="magic-movement" style={{ position: 'relative' }}>
       {/* Aurora backdrop */}
       <div aria-hidden style={{
         position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
@@ -321,7 +321,7 @@ export default function MagicMovement() {
 
       <div style={{ position: 'relative', zIndex: 1 }}>
         {/* ── Page header ── */}
-        <header className="bb-page-header">
+        <header className="bb-page-header bb-mm-header">
           <div>
             <span className="bb-eyebrow" style={{ color: 'var(--bb-pillar-2)' }}>Design bench</span>
             <h1 className="bb-display">
@@ -337,19 +337,22 @@ export default function MagicMovement() {
         </header>
 
         {/* ── Two-column grid ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '252px 1fr', gap: 14, alignItems: 'start' }}>
+        <div
+          className="bb-mm-workbench"
+          style={{ display: 'grid', gridTemplateColumns: '252px 1fr', gap: 14, alignItems: 'start' }}
+        >
 
           {/* ════════════════════════════════
               LEFT SIDEBAR — prompt composer
               ════════════════════════════════ */}
           <div
-            className="bb-card bb-lift"
+            className="bb-card bb-lift bb-mm-composer"
             style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14, minHeight: 580 }}
           >
             {/* ── Category grid ── */}
             <div>
               <label style={LABEL_STYLE}>Category</label>
-              <div style={{
+              <div className="bb-mm-category-grid" style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(4, 1fr)',
                 gap: 6,
@@ -363,6 +366,8 @@ export default function MagicMovement() {
                       type="button"
                       onClick={() => setCategory(opt.id)}
                       title={opt.label.replace('\n', ' ')}
+                      className="bb-mm-category-button"
+                      data-active={active ? 'true' : 'false'}
                       style={{
                         display: 'flex', flexDirection: 'column', alignItems: 'center',
                         justifyContent: 'center', gap: 6,
@@ -379,7 +384,7 @@ export default function MagicMovement() {
                         minHeight: 62,
                       }}
                     >
-                      <div style={{
+                      <div className="bb-mm-category-icon" style={{
                         width: 34, height: 34, borderRadius: 10,
                         background: active ? 'rgba(255,255,255,0.20)' : 'rgba(207,95,145,0.08)',
                         display: 'grid', placeItems: 'center',
@@ -387,7 +392,7 @@ export default function MagicMovement() {
                       }}>
                         <Icon size={17} strokeWidth={1.8} />
                       </div>
-                      <span style={{
+                      <span className="bb-mm-category-label" style={{
                         fontSize: '0.60rem', fontWeight: 700, textAlign: 'center',
                         lineHeight: 1.25, whiteSpace: 'pre-line',
                       }}>
@@ -402,7 +407,7 @@ export default function MagicMovement() {
             {/* ── Design prompt with Apply Luna ── */}
             <div style={{ flex: 1 }}>
               {/* Apply Luna — small chip above textarea */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div className="bb-mm-prompt-toolbar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <label style={LABEL_STYLE}>Design prompt</label>
                 <button
                   onClick={applyLuna}
@@ -428,6 +433,7 @@ export default function MagicMovement() {
 
               <textarea
                 data-testid="mm-prompt"
+                className="bb-mm-prompt-input"
                 value={prompt}
                 onChange={e => setPrompt(e.target.value)}
                 rows={5}
@@ -441,7 +447,7 @@ export default function MagicMovement() {
                 }}
               />
 
-              <div style={{
+              <div className="bb-mm-prompt-note" style={{
                 marginTop: 8, display: 'flex', alignItems: 'center', gap: 6,
                 color: 'var(--bb-muted)', fontSize: '0.72rem', fontWeight: 700,
               }}>
@@ -493,6 +499,7 @@ export default function MagicMovement() {
               <button
                 onClick={() => fileRef.current?.click()}
                 data-testid="mm-upload-ref"
+                className="bb-mm-reference-button"
                 style={{
                   width: '100%', minHeight: 54, borderRadius: 12,
                   border: '1.5px dashed var(--bb-line)',
@@ -510,7 +517,7 @@ export default function MagicMovement() {
             </div>
 
             {/* ── Action buttons ── */}
-            <div style={{ display: 'flex', gap: 10, marginTop: 'auto' }}>
+            <div className="bb-mm-actions" style={{ display: 'flex', gap: 10, marginTop: 'auto' }}>
               <button onClick={clearAll} className="bb-btn-ghost" style={{ padding: '11px 14px' }}>
                 <Eraser size={14} /> Clear
               </button>
@@ -535,7 +542,7 @@ export default function MagicMovement() {
           {/* ════════════════════════════════
               RIGHT — floating canvas (no card, no history box)
               ════════════════════════════════ */}
-          <div style={{
+          <div className="bb-mm-canvas" style={{
             position: 'relative', minHeight: 580,
             display: 'flex', flexDirection: 'column',
             alignItems: 'center', justifyContent: 'center',
@@ -549,10 +556,12 @@ export default function MagicMovement() {
                   initial={{ opacity: 0, scale: 0.92, y: 24, filter: 'blur(10px)' }}
                   animate={{ opacity: 1, scale: 1, y: 0, filter: 'blur(0px)' }}
                   transition={{ duration: 0.7, ease: [0.22, 0.9, 0.32, 1] }}
+                  className="bb-mm-result"
                   style={{ width: '100%', maxWidth: 700, textAlign: 'center' }}
                 >
                   {/* Generated image */}
                   <img
+                    className="bb-mm-result-image"
                     src={displayUrl ?? generated.url}
                     alt="Generated render"
                     style={{
@@ -569,6 +578,7 @@ export default function MagicMovement() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.3, duration: 0.4 }}
+                    className="bb-mm-result-actions"
                     style={{
                       marginTop: 22,
                       display: 'inline-flex', alignItems: 'center', gap: 10,
@@ -672,12 +682,14 @@ const ICON_LABEL: CSSProperties = { fontSize: '0.74rem', fontWeight: 700 }
 function EmptyCanvas({ category }: { category: string }) {
   return (
     <motion.div
+      className="bb-mm-empty"
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.45 }}
       style={{ textAlign: 'center', maxWidth: 380 }}
     >
       <motion.div
+        className="bb-mm-empty-icon"
         animate={{ rotate: [0, 8, -8, 0], y: [0, -6, 0] }}
         transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
         style={{
@@ -689,7 +701,7 @@ function EmptyCanvas({ category }: { category: string }) {
       >
         <Sparkles size={36} />
       </motion.div>
-      <h3 className="bb-display" style={{ margin: '0 0 8px', fontSize: '1.55rem', lineHeight: 1.15 }}>
+      <h3 className="bb-display bb-mm-empty-title" style={{ margin: '0 0 8px', fontSize: '1.55rem', lineHeight: 1.15 }}>
         Generate {category}
       </h3>
       <p style={{ margin: 0, color: 'var(--bb-muted)', lineHeight: 1.55, fontSize: '0.88rem' }}>
@@ -715,6 +727,7 @@ function GeneratingState({
   const seconds = `${elapsedSeconds % 60}`.padStart(2, '0')
   return (
     <motion.div
+      className="bb-mm-generating"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -734,6 +747,7 @@ function GeneratingState({
         />
       ))}
       <motion.div
+        className="bb-mm-generating-icon"
         animate={{ rotate: 360 }}
         transition={{ duration: 5, repeat: Infinity, ease: 'linear' }}
         style={{
