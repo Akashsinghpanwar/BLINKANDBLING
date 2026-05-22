@@ -39,6 +39,14 @@ const moodboardSchema = z.object({
   count: z.number().int().min(1).max(8).optional().default(6),
 });
 
+const editSchema = z.object({
+  baseImage: z.string().min(1).max(20_000_000),
+  prompt: z.string().max(4000).optional().default(""),
+  textLabels: z.array(z.string().max(200)).max(20).optional().default([]),
+  previousPrompt: z.string().max(8000).optional().default(""),
+  category: z.string().max(100).optional().default("auto"),
+});
+
 type GenerateRequest = z.infer<typeof generateSchema>;
 type GenerateResult = Awaited<ReturnType<typeof generateImage>>;
 type RenderJobStatus = "queued" | "running" | "completed" | "failed";
@@ -196,6 +204,77 @@ router.get("/ai-render/jobs/:id", (req, res): void => {
   }
 
   res.json(serializeRenderJob(job));
+});
+
+/* ----------------------------------------------------------
+ * Annotation edit: re-render using the annotated image as a reference
+ * ---------------------------------------------------------- */
+router.post("/ai-render/edit", async (req, res): Promise<void> => {
+  const parsed = editSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+    return;
+  }
+
+  const { baseImage, prompt, textLabels, previousPrompt, category } = parsed.data;
+
+  if (!prompt && textLabels.length === 0) {
+    res.status(400).json({ error: "Provide a description or write text labels on the image" });
+    return;
+  }
+
+  try {
+    const labelSection = textLabels.length > 0
+      ? `Text labels the user wrote directly on the marked areas of the image: ${textLabels.map((t, i) => `${i + 1}. "${t}"`).join(", ")}. ` +
+        `Each label is positioned exactly on the part of the design it refers to — apply the indicated change only to that area.`
+      : "";
+
+    const editInstructions = [
+      JEWELLERY_STYLE_SYSTEM,
+      "The user has annotated the concept render to indicate what should change. " +
+      "Red pen strokes mark the specific areas. Any text written on the image names exactly what change is wanted in that area.",
+      labelSection,
+      previousPrompt ? `Original design brief: ${previousPrompt}` : "",
+      prompt ? `Additional instructions: ${prompt}` : "",
+      "Re-render the SAME jewellery piece — preserve composition, angle, category and all un-marked elements. " +
+      "Apply ONLY the changes indicated by the annotations. " +
+      "Output a clean colored-pencil jewellery sketch with no annotation marks or text labels.",
+    ].filter(Boolean).join("\n\n");
+
+    const isOpenRouter = (process.env["OPENAI_PROVIDER"] || "").toLowerCase() === "openrouter";
+
+    if (isOpenRouter) {
+      const response = await callOpenRouterImage(editInstructions, [
+        { id: "annotated_render", name: "annotated_render", url: baseImage },
+      ]);
+      const urls = findOpenRouterImages(response);
+      const url = urls[0];
+      if (!url) throw new Error("OpenRouter did not return an edited image");
+      res.json({ imageUrl: url, category });
+      return;
+    }
+
+    const body = {
+      model: getOpenAIModel(),
+      input: [
+        { role: "user", content: [
+          { type: "input_text", text: editInstructions },
+          { type: "input_image", image_url: baseImage },
+        ]},
+      ],
+      tools: [{ type: "image_generation", action: "generate" }],
+    };
+    const response = await callAzureResponses(body);
+    const image = findImage(response);
+    if (!image) throw new Error("Azure did not return an edited image");
+    const imageUrl = image.startsWith("data:image/") || /^https?:\/\//i.test(image)
+      ? image
+      : `data:image/png;base64,${image}`;
+    res.json({ imageUrl, category });
+  } catch (error) {
+    logger.warn({ err: safeError(error) }, "AI annotation edit failed");
+    res.status(502).json({ error: error instanceof Error ? error.message : "Edit failed" });
+  }
 });
 
 router.post("/ai/respond", async (req, res): Promise<void> => {
@@ -444,6 +523,15 @@ type JewelleryVariation = {
   palette: string;
 };
 
+function shuffle<T>(arr: T[]): T[] {
+  const out = [...arr];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j]!, out[i]!];
+  }
+  return out;
+}
+
 function createJewelleryVariations(userPrompt: string, count: number, requestedCategory = "auto"): JewelleryVariation[] {
   const category = normalizeCategory(requestedCategory) || inferCategory(userPrompt);
   const variantsByCategory: Record<string, JewelleryVariation[]> = {
@@ -481,7 +569,7 @@ function createJewelleryVariations(userPrompt: string, count: number, requestedC
   };
 
   const fallback = [...variantsByCategory.women_watch, ...variantsByCategory.men_watch, ...variantsByCategory.necklace, ...variantsByCategory.ring];
-  const source = variantsByCategory[category] || fallback;
+  const source = shuffle(variantsByCategory[category] || fallback);
   return Array.from({ length: count }, (_, index) => source[index % source.length]);
 }
 

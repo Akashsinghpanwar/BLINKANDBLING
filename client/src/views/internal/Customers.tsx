@@ -7,13 +7,19 @@ import { useApp } from '../../context/AppContext'
 export default function Customers() {
   const [, navigate] = useLocation()
   const { showToast } = useApp()
-  const { projects, addProject } = useProjects()
+  const { projects, stages, addProject } = useProjects()
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState('all')
   const [showAdd, setShowAdd] = useState(false)
   const [newClient, setNewClient] = useState({ fullName: '', email: '', phone: '', projectName: 'Custom jewellery project' })
   const [createdCode, setCreatedCode] = useState<string | null>(null)
   const [isAdding, setIsAdding] = useState(false)
+
+  const stageProgress = (stageId: string) => {
+    const idx = stages.findIndex(s => s.id === stageId)
+    if (idx < 0) return 10
+    return Math.round(((idx + 1) / stages.length) * 100)
+  }
 
   const filtered = projects.filter(p => {
     const status = p.status === 'manufacturing' ? 'active' : p.status === 'pending_approval' ? 'pending' : 'active'
@@ -83,10 +89,21 @@ export default function Customers() {
       </section>
 
       <section className="bb-grid-2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px,1fr))', gap: 16 }}>
+        {filtered.length === 0 && (
+          <div style={{ gridColumn: '1 / -1', padding: '48px 24px', textAlign: 'center', color: 'var(--bb-muted)' }}>
+            <Plus size={36} style={{ opacity: 0.25, marginBottom: 14 }} />
+            <strong style={{ display: 'block', color: 'var(--bb-ink)', marginBottom: 6, fontFamily: 'var(--app-font-display)', fontWeight: 500, fontSize: '1.1rem' }}>
+              {q ? 'No clients match your search' : 'No clients yet'}
+            </strong>
+            <p style={{ margin: '0 auto', maxWidth: 340, fontSize: '0.86rem', lineHeight: 1.6 }}>
+              {q ? 'Try a different name or project.' : 'Click "Add client" to create your first customer workspace and generate an access code.'}
+            </p>
+          </div>
+        )}
         {filtered.map(project => {
           const initials = project.customer.name.split(' ').map(n => n[0]).join('')
           const sc = stageColor(project.stage)
-          const progress = project.stage === 'production' ? 85 : project.stage === '3d_render' ? 55 : 35
+          const progress = stageProgress(project.stage)
           return (
             <article
               key={project.id}
@@ -109,7 +126,7 @@ export default function Customers() {
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <h3 style={{ margin: 0, color: 'var(--bb-ink)', fontSize: '1.02rem', fontFamily: 'var(--app-font-display)', fontWeight: 500 }}>{project.customer.name}</h3>
-                    <p style={{ margin: '4px 0 0', color: 'var(--bb-muted)', fontSize: '0.82rem' }}>{project.name.split('â€”')[1]?.trim() || project.name}</p>
+                    <p style={{ margin: '4px 0 0', color: 'var(--bb-muted)', fontSize: '0.82rem' }}>{project.name.split(/ [-–—] /)[1]?.trim() || project.name}</p>
                   </div>
                   <ArrowRight size={16} style={{ color: 'var(--bb-muted)', flexShrink: 0 }} />
                 </div>

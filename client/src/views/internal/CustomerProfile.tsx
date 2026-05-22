@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'wouter'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowLeft, BadgePoundSterling, Bot, Box, CalendarDays, CalendarPlus, CheckCircle2, Images, LayoutDashboard, Lock, Mail, MessageCircle, Save, Sparkles, Unlock, X } from 'lucide-react'
+import { ArrowLeft, BadgePoundSterling, Bot, Box, CalendarDays, CalendarPlus, CheckCircle2, Images, LayoutDashboard, Lock, Mail, MessageCircle, Pencil, Save, Sparkles, Unlock, X } from 'lucide-react'
 import { useProjects } from '../../context/ProjectContext'
 import { useApp } from '../../context/AppContext'
 import ProjectMessenger from '../../components/ProjectMessenger'
@@ -56,11 +56,12 @@ function WhatsAppIcon({ size = 18 }: { size?: number }) {
 export default function CustomerProfile({ projectId }: Props) {
   const [, navigate] = useLocation()
   const { showToast } = useApp()
-  const { projects, setFeatureAccess, refreshProjects, setPortalProject } = useProjects()
+  const { projects, stages, setFeatureAccess, refreshProjects, setPortalProject, updateProject } = useProjects()
   const [hasRefreshed, setHasRefreshed] = useState(false)
   const [appointments, setAppointments] = useState<AppointmentItem[]>([])
   const [appointmentDraft, setAppointmentDraft] = useState<AppointmentItem | null>(null)
   const [showMessenger, setShowMessenger] = useState(false)
+  const [savingField, setSavingField] = useState<string | null>(null)
   const project = projects.find(p => p.id === projectId)
 
   useEffect(() => {
@@ -291,21 +292,96 @@ export default function CustomerProfile({ projectId }: Props) {
             </div>
           )}
 
-          <div style={{ display: 'grid', gap: 10 }}>
-            {[
-              ['Project', project.name.includes(' - ') ? project.name.split(' - ').slice(1).join(' - ') : project.name],
-              ['Budget', project.budget],
-              ['Metal', project.metalPreference],
-              ['Stone', project.gemstonePreference],
-              ['Ring size', project.ringSize],
-              ['Timeline', project.timeline],
-              ['Access code', project.accessCode || 'Not generated'],
-            ].map(([label, value]) => (
-              <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 14, borderBottom: '1px solid var(--bb-line)', paddingBottom: 9 }}>
-                <span style={{ color: 'var(--bb-muted)', fontSize: '0.82rem' }}>{label}</span>
-                <strong style={{ color: 'var(--bb-ink)', fontSize: '0.86rem', textAlign: 'right' }}>{value}</strong>
-              </div>
-            ))}
+          <div style={{ display: 'grid', gap: 4 }}>
+            <EditableField
+              label="Project name"
+              value={project.name.includes(' - ') ? project.name.split(' - ').slice(1).join(' - ') : project.name}
+              saving={savingField === 'projectName'}
+              onSave={async v => {
+                setSavingField('projectName')
+                await updateProject(project.id, { projectName: `${project.customer.name} - ${v}` })
+                setSavingField(null)
+                showToast('Project name saved', 'success')
+              }}
+            />
+            <EditableField
+              label="Stage"
+              value={project.stage}
+              type="select"
+              options={stages.map(s => ({ value: s.id, label: s.label }))}
+              saving={savingField === 'stage'}
+              onSave={async v => {
+                setSavingField('stage')
+                await updateProject(project.id, { stage: v })
+                setSavingField(null)
+                showToast('Stage updated', 'success')
+              }}
+            />
+            <EditableField
+              label="Budget"
+              value={project.budget === 'Not set' ? '' : project.budget}
+              placeholder="e.g. £2,500"
+              saving={savingField === 'budget'}
+              onSave={async v => {
+                setSavingField('budget')
+                await updateProject(project.id, { budget: v })
+                setSavingField(null)
+                showToast('Budget saved', 'success')
+              }}
+            />
+            <EditableField
+              label="Metal"
+              value={project.metalPreference === 'Not set' ? '' : project.metalPreference}
+              placeholder="e.g. 18ct Yellow Gold"
+              saving={savingField === 'metalPreference'}
+              onSave={async v => {
+                setSavingField('metalPreference')
+                await updateProject(project.id, { metalPreference: v })
+                setSavingField(null)
+                showToast('Metal preference saved', 'success')
+              }}
+            />
+            <EditableField
+              label="Stone"
+              value={project.gemstonePreference === 'Not set' ? '' : project.gemstonePreference}
+              placeholder="e.g. Round brilliant diamond"
+              saving={savingField === 'gemstonePreference'}
+              onSave={async v => {
+                setSavingField('gemstonePreference')
+                await updateProject(project.id, { gemstonePreference: v })
+                setSavingField(null)
+                showToast('Stone preference saved', 'success')
+              }}
+            />
+            <EditableField
+              label="Ring size"
+              value={project.ringSize === 'Not set' ? '' : project.ringSize}
+              placeholder="e.g. M / 6 / 52mm"
+              saving={savingField === 'ringSize'}
+              onSave={async v => {
+                setSavingField('ringSize')
+                await updateProject(project.id, { ringSize: v })
+                setSavingField(null)
+                showToast('Ring size saved', 'success')
+              }}
+            />
+            <EditableField
+              label="Timeline"
+              value={project.timeline === 'Not set' ? '' : project.timeline}
+              placeholder="e.g. 8 weeks"
+              saving={savingField === 'timeline'}
+              onSave={async v => {
+                setSavingField('timeline')
+                await updateProject(project.id, { timeline: v })
+                setSavingField(null)
+                showToast('Timeline saved', 'success')
+              }}
+            />
+            {/* Access code — read-only */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, borderBottom: '1px solid var(--bb-line)', padding: '10px 0' }}>
+              <span style={{ color: 'var(--bb-muted)', fontSize: '0.82rem', flexShrink: 0 }}>Access code</span>
+              <strong style={{ color: 'var(--bb-ink)', fontSize: '0.86rem', letterSpacing: '0.05em' }}>{project.accessCode || 'Not generated'}</strong>
+            </div>
           </div>
         </div>
 
@@ -438,6 +514,131 @@ export default function CustomerProfile({ projectId }: Props) {
       </AnimatePresence>
     </div>
   )
+}
+
+// ─── Inline-editable field ───────────────────────────────────────────────────
+interface EditableFieldProps {
+  label: string
+  value: string
+  placeholder?: string
+  saving?: boolean
+  type?: 'text' | 'select'
+  options?: { value: string; label: string }[]
+  onSave: (value: string) => Promise<void>
+}
+
+function EditableField({ label, value, placeholder, saving, type = 'text', options, onSave }: EditableFieldProps) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+  const [hovered, setHovered] = useState(false)
+  const inputRef = useRef<HTMLInputElement | HTMLSelectElement>(null)
+
+  // Sync external value changes (e.g. after optimistic update)
+  useEffect(() => {
+    if (!editing) setDraft(value)
+  }, [value, editing])
+
+  const startEdit = () => {
+    setDraft(value)
+    setEditing(true)
+    setTimeout(() => (inputRef.current as HTMLElement | null)?.focus(), 10)
+  }
+
+  const commit = async () => {
+    if (!editing) return
+    setEditing(false)
+    const trimmed = draft.trim()
+    if (trimmed === value) return          // no change
+    await onSave(trimmed)
+  }
+
+  const cancel = () => {
+    setEditing(false)
+    setDraft(value)
+  }
+
+  const displayValue = value || 'Not set'
+  const isEmpty = !value
+
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{ borderBottom: '1px solid var(--bb-line)', padding: '10px 0' }}
+    >
+      {editing ? (
+        <div style={{ display: 'grid', gap: 6 }}>
+          <span style={{ color: 'var(--bb-muted)', fontSize: '0.78rem', fontWeight: 700 }}>{label}</span>
+          {type === 'select' && options ? (
+            <select
+              ref={inputRef as React.RefObject<HTMLSelectElement>}
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onBlur={commit}
+              onKeyDown={e => { if (e.key === 'Escape') cancel() }}
+              style={{ ...editInputStyle }}
+            >
+              {options.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              ref={inputRef as React.RefObject<HTMLInputElement>}
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              placeholder={placeholder}
+              onBlur={commit}
+              onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel() }}
+              style={{ ...editInputStyle }}
+            />
+          )}
+          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+            <button type="button" onClick={cancel} style={smallBtnStyle}>Cancel</button>
+            <button type="button" onClick={commit} style={{ ...smallBtnStyle, background: 'var(--bb-rose)', color: '#fff', border: 'none' }}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div
+          onClick={startEdit}
+          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, cursor: 'pointer', borderRadius: 8, padding: '2px 4px', margin: '-2px -4px', transition: 'background 0.15s', background: hovered ? 'rgba(207,95,145,0.05)' : 'transparent' }}
+        >
+          <span style={{ color: 'var(--bb-muted)', fontSize: '0.82rem', flexShrink: 0 }}>{label}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            {saving && <span style={{ fontSize: '0.7rem', color: 'var(--bb-rose)' }}>Saving…</span>}
+            <strong style={{ color: isEmpty ? 'var(--bb-muted)' : 'var(--bb-ink)', fontSize: '0.86rem', textAlign: 'right', fontWeight: isEmpty ? 400 : 700, fontStyle: isEmpty ? 'italic' : 'normal' }}>
+              {type === 'select' && options ? (options.find(o => o.value === value)?.label ?? displayValue) : displayValue}
+            </strong>
+            <Pencil size={11} style={{ color: 'var(--bb-muted)', opacity: hovered ? 1 : 0, flexShrink: 0, transition: 'opacity 0.15s' }} />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const editInputStyle: React.CSSProperties = {
+  width: '100%',
+  border: '1.5px solid var(--bb-rose)',
+  borderRadius: 9,
+  padding: '9px 11px',
+  background: '#fff',
+  color: 'var(--bb-ink)',
+  outline: 'none',
+  fontSize: '0.86rem',
+}
+
+const smallBtnStyle: React.CSSProperties = {
+  fontSize: '0.76rem',
+  fontWeight: 700,
+  padding: '5px 12px',
+  borderRadius: 8,
+  border: '1px solid var(--bb-line)',
+  background: '#fff',
+  color: 'var(--bb-muted)',
+  cursor: 'pointer',
 }
 
 const profileFieldStyle = {

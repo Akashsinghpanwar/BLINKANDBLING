@@ -42,19 +42,14 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         runtimeCaching: [
           {
-            // AI image generation can take 2+ minutes — never intercept, always go to network
-            urlPattern: /^\/api\/ai-render\//,
-            handler: "NetworkOnly",
-          },
-          {
-            // Data endpoints — serve cached instantly, refresh in background
+            // All API calls bypass the service worker — session-authenticated
+            // data must never be served from a stale SW cache.
             urlPattern: /^\/api\//,
-            handler: "StaleWhileRevalidate",
-            options: { cacheName: "api-cache" },
+            handler: "NetworkOnly",
           },
         ],
       },
-      devOptions: { enabled: true },
+      devOptions: { enabled: false },
     }),
   ],
   resolve: {

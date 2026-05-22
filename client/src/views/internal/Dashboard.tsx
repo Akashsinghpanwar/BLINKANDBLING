@@ -39,11 +39,7 @@ type ScheduleItem = {
 
 const scheduleStorageKey = 'bb-jeweller-schedule-v1'
 
-const defaultSchedule: ScheduleItem[] = [
-  { id: 'sched_1', date: todayIso(), time: '10:30', title: 'Emma render review', meta: 'Decision needed', tone: 'var(--bb-rose)' },
-  { id: 'sched_2', date: todayIso(), time: '13:00', title: 'Sarah stone shortlist', meta: 'Awaiting supplier', tone: 'var(--bb-violet)' },
-  { id: 'sched_3', date: todayIso(), time: '16:15', title: 'Jessica production note', meta: 'Bench update', tone: 'var(--bb-emerald)' },
-]
+const defaultSchedule: ScheduleItem[] = []
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10)
@@ -54,7 +50,11 @@ function loadSchedule(): ScheduleItem[] {
     const raw = localStorage.getItem(scheduleStorageKey)
     if (!raw) return defaultSchedule
     const parsed = JSON.parse(raw) as ScheduleItem[]
-    return Array.isArray(parsed) && parsed.length ? parsed : defaultSchedule
+    if (!Array.isArray(parsed)) return defaultSchedule
+    // Clear stale dummy items
+    const real = parsed.filter(s => !['sched_1', 'sched_2', 'sched_3'].includes(s.id))
+    if (real.length !== parsed.length) localStorage.setItem(scheduleStorageKey, JSON.stringify(real))
+    return real
   } catch { return defaultSchedule }
 }
 

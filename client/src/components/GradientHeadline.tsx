@@ -16,7 +16,7 @@ interface Props {
   style?: React.CSSProperties
 }
 
-const DEFAULT_COLORS = ['#e38d5a', '#cf5f91', '#8b6bb5', '#3f8874']
+const DEFAULT_COLORS = ['#cf5f91', '#e38d5a', '#8b6bb5', '#c36ba0']
 
 export default function GradientHeadline({ intro, gradient, outro, className, style }: Props) {
   const reduced = useReducedMotion()

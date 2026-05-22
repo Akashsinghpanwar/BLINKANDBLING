@@ -131,9 +131,9 @@ export default function LandingPage() {
               position: 'fixed', inset: 0, zIndex: 200,
               display: 'grid', placeItems: 'center',
               background:
-                'radial-gradient(circle at 78% 4%, rgba(244,223,226,0.85), transparent 35%),' +
-                'radial-gradient(circle at 12% 92%, rgba(225,210,239,0.6), transparent 40%),' +
-                'linear-gradient(135deg, #fffefe 0%, #fbf8f5 50%, #f4ece6 100%)',
+                'radial-gradient(circle at 78% 4%, rgba(186,219,255,0.75), transparent 35%),' +
+                'radial-gradient(circle at 12% 92%, rgba(165,200,255,0.5), transparent 40%),' +
+                'linear-gradient(135deg, #f5f9ff 0%, #edf4ff 50%, #e2eeff 100%)',
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'center', padding: '0 24px' }}>
@@ -176,8 +176,8 @@ export default function LandingPage() {
             borderRadius: 999,
             overflow: 'hidden',
             background:
-              'radial-gradient(circle at 14% 0%, rgba(241,208,107,0.18), transparent 34%),' +
-              'radial-gradient(circle at 86% 95%, rgba(207,95,145,0.22), transparent 38%),' +
+              'radial-gradient(circle at 14% 0%, rgba(207,95,145,0.15), transparent 34%),' +
+              'radial-gradient(circle at 86% 95%, rgba(139,107,181,0.12), transparent 38%),' +
               'linear-gradient(135deg, rgba(26,20,27,0.96), rgba(58,43,55,0.96) 48%, rgba(35,29,42,0.97))',
             border: '1px solid rgba(241,208,107,0.28)',
             boxShadow:
@@ -197,8 +197,8 @@ export default function LandingPage() {
               inset: 1,
               borderRadius: 999,
               background: isIslandOpen
-                ? 'linear-gradient(115deg, rgba(255,244,206,0.08), rgba(207,95,145,0.16) 44%, rgba(139,107,181,0.12))'
-                : 'linear-gradient(115deg, rgba(255,244,206,0.08), rgba(207,95,145,0.12))',
+                ? 'linear-gradient(115deg, rgba(255,244,206,0.10), rgba(212,168,67,0.14) 44%, rgba(139,107,61,0.10))'
+                : 'linear-gradient(115deg, rgba(255,244,206,0.10), rgba(212,168,67,0.10))',
               opacity: 1,
             }}
           />
@@ -383,7 +383,7 @@ export default function LandingPage() {
               height: 8,
               borderRadius: '50%',
               background: 'var(--bb-rose)',
-              boxShadow: '0 0 0 5px rgba(207,95,145,0.10)',
+              boxShadow: '0 0 0 5px rgba(207,95,145,0.14)',
               flexShrink: 0,
             }} />
             <span style={{ color: 'var(--bb-emerald)', fontSize: '0.68rem', fontWeight: 900, letterSpacing: '0.18em', textTransform: 'uppercase' }}>
@@ -397,10 +397,10 @@ export default function LandingPage() {
             fontWeight: 500,
             lineHeight: 0.94,
             color: 'transparent',
-            backgroundImage: 'linear-gradient(110deg, #e38d5a, #cf5f91 58%, #8b6bb5)',
+            backgroundImage: 'linear-gradient(110deg, #a33b6e, #cf5f91 55%, #8b6bb5)',
             WebkitBackgroundClip: 'text',
             backgroundClip: 'text',
-            textShadow: '0 18px 42px rgba(207,95,145,0.10)',
+            textShadow: '0 18px 42px rgba(207,95,145,0.16)',
           }}>
             {timeText}
           </strong>
@@ -439,38 +439,15 @@ export default function LandingPage() {
             animate="visible"
             style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}
           >
-            <motion.span
-              variants={fadeUp}
-              className="bb-eyebrow"
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 10,
-                padding: '7px 14px',
-                marginBottom: 28,
-                background: 'rgba(255,255,255,0.78)',
-                border: '1px solid var(--bb-line)',
-                borderRadius: 999,
-                color: 'var(--bb-pillar-1)',
-                backdropFilter: 'blur(14px)',
-                boxShadow: '0 6px 18px rgba(51,39,35,0.05)',
-              }}
-            >
-              <span style={{
-                width: 7, height: 7, borderRadius: '50%',
-                background: 'var(--bb-pillar-1)',
-                boxShadow: '0 0 0 4px rgba(63,136,116,0.18)',
-              }} />
-              Design OS
-            </motion.span>
-
-            <GradientHeadline
+<GradientHeadline
               intro="The future of"
               gradient={[
-                { text: 'bespoke', color: '#e38d5a' },
+                { text: 'bespoke', color: '#a33b6e' },
                 { text: 'jewellery,', serif: true, color: '#cf5f91' },
-                { text: 'crafted', color: '#8b6bb5', breakBefore: true },
-                { text: 'end', color: '#3f8874' },
+                { text: 'crafted', color: '#5a2060', breakBefore: true },
+                { text: 'end', color: '#8b6bb5' },
                 { text: 'to', color: '#cf5f91' },
-                { text: 'end.', color: '#e38d5a' },
+                { text: 'end.', color: '#a33b6e' },
               ]}
               style={{ fontSize: 'clamp(2.6rem, 5.6vw, 5rem)', letterSpacing: '-0.028em' }}
             />
@@ -812,7 +789,7 @@ export default function LandingPage() {
             width: 300,
             height: 300,
             borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(207,95,145,0.16), transparent 70%)',
+            background: 'radial-gradient(circle, rgba(207,95,145,0.14), transparent 70%)',
           }} />
           <div style={{ position: 'relative' }}>
             <div style={{ display: 'inline-flex', gap: 4, marginBottom: 20 }}>
@@ -863,7 +840,7 @@ export default function LandingPage() {
         >
           <div aria-hidden style={{
             position: 'absolute', inset: 0,
-            background: 'radial-gradient(circle at 18% 0%, rgba(227,141,90,0.42), transparent 45%), radial-gradient(circle at 82% 100%, rgba(207,95,145,0.46), transparent 50%), radial-gradient(circle at 50% 50%, rgba(139,107,181,0.18), transparent 60%)',
+            background: 'radial-gradient(circle at 18% 0%, rgba(227,141,90,0.38), transparent 45%), radial-gradient(circle at 82% 100%, rgba(207,95,145,0.38), transparent 50%), radial-gradient(circle at 50% 50%, rgba(139,107,181,0.16), transparent 60%)',
           }} />
           <div aria-hidden className="bb-cta-grain" />
           <div style={{ position: 'relative' }}>

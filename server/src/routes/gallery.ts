@@ -4,6 +4,28 @@ import { z } from "zod";
 
 const router: IRouter = Router();
 
+/**
+ * Convert a potentially temporary image URL to a permanent base64 data URL.
+ * OpenRouter / AI model URLs expire within hours — we download and store the
+ * image as base64 so the gallery never loses designs.
+ *
+ * Falls back to the original URL if download fails.
+ */
+async function permanentImageUrl(url: string): Promise<string> {
+  if (!url || url.startsWith("data:")) return url; // already permanent
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+    if (!res.ok) return url;
+    const buffer = await res.arrayBuffer();
+    const contentType = res.headers.get("content-type") || "image/png";
+    const mime = contentType.split(";")[0]?.trim() || "image/png";
+    const base64 = Buffer.from(buffer).toString("base64");
+    return `data:${mime};base64,${base64}`;
+  } catch {
+    return url; // fallback — not ideal but better than throwing
+  }
+}
+
 const imageSchema = z.object({
   url: z.string().min(1),
   label: z.string().min(1).max(200),
@@ -70,6 +92,21 @@ function ownerId(req: { session?: { userId?: string } }) {
 router.get("/gallery/folders", async (req, res): Promise<void> => {
   try {
     await ensureGalleryTables();
+    const userId = ownerId(req);
+
+    // Auto-claim: if an authenticated jeweller hits this endpoint, reassign any
+    // gallery folders stored under 'demo' to their real account so previously
+    // generated designs are not lost after login.
+    if (userId !== "demo") {
+      await pool.query(
+        `update bb_gallery_folders set user_id = $1 where user_id = 'demo'`,
+        [userId],
+      );
+    }
+
+    // Return /api/gallery/images/:id as the URL — this keeps the list response
+    // lightweight (no 1-2 MB base64 blobs per image) and lets the browser
+    // stream each image individually.
     const { rows } = await pool.query(
       `
         select
@@ -83,7 +120,7 @@ router.get("/gallery/folders", async (req, res): Promise<void> => {
             json_agg(
               json_build_object(
                 'id', i.id,
-                'url', i.url,
+                'url', '/api/gallery/images/' || i.id,
                 'label', i.label,
                 'angle', i.angle,
                 'prompt', i.prompt,
@@ -99,12 +136,53 @@ router.get("/gallery/folders", async (req, res): Promise<void> => {
         group by f.id
         order by f.created_at desc
       `,
-      [ownerId(req)],
+      [userId],
     );
     res.json({ folders: rows });
   } catch (err) {
     console.error("Gallery list error:", err);
     res.status(500).json({ error: "Failed to load gallery" });
+  }
+});
+
+/**
+ * Serve an individual gallery image by ID.
+ * Images are stored as base64 data URLs in the DB — decode and stream as binary
+ * so the browser receives a normal image response (not a 1MB+ JSON string).
+ * Same-origin, so no CORS headers needed and canvas API can read it freely.
+ */
+router.get("/gallery/images/:id", async (req, res): Promise<void> => {
+  try {
+    await ensureGalleryTables();
+    const { rows } = await pool.query(
+      "select url from bb_gallery_images where id = $1",
+      [req.params.id],
+    );
+    const row = rows[0];
+    if (!row) {
+      res.status(404).json({ error: "Image not found" });
+      return;
+    }
+
+    const url: string = row.url;
+
+    // Stored as base64 data URL — decode and serve as binary
+    if (url.startsWith("data:")) {
+      const [header, b64] = url.split(",") as [string, string];
+      const mime = header.replace("data:", "").replace(";base64", "") || "image/png";
+      const buffer = Buffer.from(b64, "base64");
+      res.setHeader("Content-Type", mime);
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      res.setHeader("Content-Length", buffer.length);
+      res.end(buffer);
+      return;
+    }
+
+    // External URL — redirect (edge case for older rows stored before permanentImageUrl)
+    res.redirect(302, url);
+  } catch (err) {
+    console.error("Gallery image serve error:", err);
+    res.status(500).json({ error: "Failed to load image" });
   }
 });
 
@@ -129,15 +207,23 @@ router.post("/gallery/folders", async (req, res): Promise<void> => {
     );
     const folder = folderResult.rows[0];
 
+    // Download all temporary external URLs in parallel before inserting,
+    // so the entire set is fetched at once rather than one-by-one.
+    const permanentUrls = await Promise.all(
+      parsed.data.images.map((image) => permanentImageUrl(image.url)),
+    );
+
     const images = [];
-    for (const image of parsed.data.images) {
+    for (let idx = 0; idx < parsed.data.images.length; idx++) {
+      const image = parsed.data.images[idx]!;
+      const permanentUrl = permanentUrls[idx]!;
       const imageResult = await client.query(
         `
           insert into bb_gallery_images(folder_id, url, label, angle, prompt)
           values ($1, $2, $3, $4, $5)
           returning id, url, label, angle, prompt, created_at as "createdAt"
         `,
-        [folder.id, image.url, image.label, image.angle, image.prompt],
+        [folder.id, permanentUrl, image.label, image.angle, image.prompt],
       );
       images.push(imageResult.rows[0]);
     }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import { useAnnotationCanvas } from '../../hooks/useAnnotationCanvas'
 import { motion } from 'framer-motion'
-import { Box, Check, Download, Eye, FileArchive, FolderOpen, Images, Instagram, Mail, Maximize2, MessageCircle, Pencil, Send, Share2, Sparkles, Trash2, Upload, X } from 'lucide-react'
+import { Box, Check, Download, Eraser, Eye, FileArchive, FolderOpen, Images, Instagram, Mail, Maximize2, MessageCircle, Pencil, Send, Share2, Sparkles, Trash2, Type, Upload, X } from 'lucide-react'
 import { useLocation } from 'wouter'
 import { MOOD_BOARD, photos } from '../../lib/photos'
 import { fadeUp, stagger } from '../../lib/motion'
@@ -93,6 +94,8 @@ export default function UserGallery() {
     setViewerCadFile,
     setPendingMagicReference,
     sendImageToCadFiles,
+    saveAiGeneratedImage,
+    setPendingEditResult,
   } = useProjects()
   const folders = demoFolders.map(folder => folder.id === 'ai'
     ? {
@@ -115,6 +118,27 @@ export default function UserGallery() {
   const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  // Inline annotation state for maximized dialog
+  const [annotateMode, setAnnotateMode] = useState(false)
+  const [isApplyingGalleryEdit, setIsApplyingGalleryEdit] = useState(false)
+
+  const {
+    annotationTool, setAnnotationTool,
+    annotateNotes, setAnnotateNotes,
+    pendingText, pendingTextValue, setPendingTextValue,
+    textAnnotations,
+    canvasRef: annotationCanvasRef,
+    imageWrapRef: galleryImageWrapRef,
+    onPointerDown: galleryPointerDown,
+    onPointerMove: galleryPointerMove,
+    onPointerUp: galleryPointerUp,
+    onCanvasClick: galleryCanvasClick,
+    commitPendingText,
+    clearAnnotations: clearGalleryAnnotations,
+    resetAll,
+    buildAnnotatedComposite,
+  } = useAnnotationCanvas(annotateMode, maximizedImage?.url)
 
   // ── localStorage fallback ──────────────────────────────────────────────
   const LS_KEY = 'bb-uploads-v1'
@@ -260,6 +284,55 @@ export default function UserGallery() {
       showToast('Saved in CAD Files folder', 'success')
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not save to CAD files', 'error')
+    }
+  }
+
+  const closeMaximized = () => {
+    resetAll()
+    setAnnotateMode(false)
+    setMaximizedImage(null)
+  }
+
+  const applyGalleryAnnotationEdit = async () => {
+    if (!maximizedImage) return
+    if (!annotateNotes.trim() && textAnnotations.length === 0) {
+      showToast('Draw or write a label on the image first', 'error')
+      return
+    }
+    setIsApplyingGalleryEdit(true)
+    try {
+      const { dataUrl, textLabels } = await buildAnnotatedComposite(maximizedImage.url)
+      const res = await fetch('/api/ai-render/edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          baseImage: dataUrl,
+          prompt: annotateNotes,
+          textLabels,
+          previousPrompt: maximizedImage.prompt || '',
+          category: 'auto',
+        }),
+      })
+      const data = await res.json().catch(() => null) as { imageUrl?: string; error?: string } | null
+      if (!res.ok || !data?.imageUrl) throw new Error(data?.error || `Edit failed (${res.status})`)
+      const editLabel = `Edited - ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+      const editPrompt = [maximizedImage.prompt, textLabels.length ? `Labels: ${textLabels.join(', ')}` : '', annotateNotes].filter(Boolean).join('\n\n')
+      saveAiGeneratedImage({ url: data.imageUrl, label: editLabel, prompt: editPrompt })
+      setPendingEditResult({
+        id: `edit_${Date.now()}`,
+        url: data.imageUrl,
+        label: editLabel,
+        prompt: editPrompt,
+        source: 'ai',
+        createdAt: new Date().toISOString(),
+      })
+      showToast('Edit applied — opening moodboard…', 'success')
+      closeMaximized()
+      setLocation('/portal/magic-movement')
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Edit failed', 'error')
+    } finally {
+      setIsApplyingGalleryEdit(false)
     }
   }
 
@@ -637,7 +710,7 @@ export default function UserGallery() {
         <div
           role="dialog"
           aria-modal="true"
-          onClick={() => setMaximizedImage(null)}
+          onClick={closeMaximized}
           style={{
             position: 'fixed',
             inset: 0,
@@ -649,14 +722,132 @@ export default function UserGallery() {
             padding: 28,
           }}
         >
-          <div className="bb-card" onClick={e => e.stopPropagation()} style={{ width: 'min(1040px, 94vw)', maxHeight: '92vh', padding: 14, display: 'grid', gap: 12 }}>
+          <div className="bb-card" onClick={e => e.stopPropagation()} style={{ width: 'min(1040px, 94vw)', maxHeight: '92vh', padding: 14, display: 'grid', gap: 12, overflowY: 'auto' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
               <strong style={{ color: 'var(--bb-ink)' }}>{maximizedImage.label}</strong>
-              <button className="bb-icon-btn" onClick={() => setMaximizedImage(null)} aria-label="Close image"><X size={16} /></button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
+                  className="bb-icon-btn"
+                  onClick={() => setAnnotateMode(m => !m)}
+                  title={annotateMode ? 'Exit annotation mode' : 'Annotate & AI edit'}
+                  style={annotateMode ? { color: 'var(--bb-rose)', background: 'rgba(207,95,145,0.08)', borderColor: 'rgba(207,95,145,0.25)' } : {}}
+                >
+                  <Pencil size={15} />
+                </button>
+                <button className="bb-icon-btn" onClick={closeMaximized} aria-label="Close image"><X size={16} /></button>
+              </div>
             </div>
-            <div style={{ minHeight: 0, display: 'grid', placeItems: 'center', background: '#fff', border: '1px solid var(--bb-line)', borderRadius: 12, overflow: 'hidden' }}>
-              <img src={maximizedImage.url} alt={maximizedImage.label} style={{ maxWidth: '100%', maxHeight: '76vh', objectFit: 'contain', display: 'block' }} />
+            <div style={{ minHeight: 0, display: 'flex', justifyContent: 'center', background: '#fff', border: '1px solid var(--bb-line)', borderRadius: 12, overflow: 'hidden' }}>
+              <div ref={galleryImageWrapRef} style={{ position: 'relative', display: 'inline-block' }}>
+                <img src={maximizedImage.url} alt={maximizedImage.label} style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain', display: 'block' }} />
+                {annotateMode && (
+                  <>
+                    <canvas
+                      ref={annotationCanvasRef}
+                      style={{ position: 'absolute', left: 0, top: 0, cursor: annotationTool === 'text' ? 'text' : 'crosshair', touchAction: 'none', background: 'transparent' }}
+                      onPointerDown={galleryPointerDown}
+                      onPointerMove={galleryPointerMove}
+                      onPointerUp={galleryPointerUp}
+                      onPointerCancel={galleryPointerUp}
+                      onClick={galleryCanvasClick}
+                    />
+                    {pendingText && (
+                      <input
+                        autoFocus
+                        value={pendingTextValue}
+                        onChange={e => setPendingTextValue(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commitPendingText() } if (e.key === 'Escape') commitPendingText() }}
+                        onBlur={commitPendingText}
+                        style={{
+                          position: 'absolute',
+                          left: pendingText.x,
+                          top: pendingText.y - 28,
+                          minWidth: 100, maxWidth: 260,
+                          padding: '3px 7px',
+                          border: '1.5px solid #e11d48',
+                          borderRadius: 5,
+                          background: 'rgba(255,255,255,0.97)',
+                          color: '#e11d48',
+                          fontWeight: 700,
+                          fontSize: 13,
+                          outline: 'none',
+                          zIndex: 5,
+                          boxShadow: '0 2px 10px rgba(225,29,72,0.18)',
+                        }}
+                        placeholder="Type & press Enter…"
+                      />
+                    )}
+                  </>
+                )}
+              </div>
             </div>
+            {annotateMode && (
+              <div style={{
+                padding: 14,
+                background: 'rgba(255,255,255,0.78)',
+                backdropFilter: 'blur(14px)',
+                border: '1px solid rgba(207,95,145,0.18)',
+                borderRadius: 14,
+                boxShadow: '0 10px 28px rgba(207,95,145,0.10)',
+              }}>
+                {/* Tool selector */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                  <span style={{ fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--bb-rose)', flex: 1 }}>Tool</span>
+                  <button
+                    type="button"
+                    className="bb-icon-btn"
+                    onClick={() => setAnnotationTool('pen')}
+                    title="Draw / circle areas"
+                    style={annotationTool === 'pen' ? { color: 'var(--bb-rose)', background: 'rgba(207,95,145,0.08)', borderColor: 'rgba(207,95,145,0.25)' } : {}}
+                  >
+                    <Pencil size={13} /> Draw
+                  </button>
+                  <button
+                    type="button"
+                    className="bb-icon-btn"
+                    onClick={() => setAnnotationTool('text')}
+                    title="Click image to type a label"
+                    style={annotationTool === 'text' ? { color: 'var(--bb-rose)', background: 'rgba(207,95,145,0.08)', borderColor: 'rgba(207,95,145,0.25)' } : {}}
+                  >
+                    <Type size={13} /> Text
+                  </button>
+                </div>
+                {annotationTool === 'text' && (
+                  <p style={{ margin: '0 0 8px', fontSize: '0.75rem', color: 'var(--bb-muted)', lineHeight: 1.45 }}>
+                    Click anywhere on the image to place a text label at that exact spot.
+                  </p>
+                )}
+                <textarea
+                  value={annotateNotes}
+                  onChange={e => setAnnotateNotes(e.target.value)}
+                  placeholder="Optional extra notes…"
+                  rows={2}
+                  style={{
+                    width: '100%', padding: '10px 12px', borderRadius: 10,
+                    border: '1px solid var(--bb-line)', background: '#fff',
+                    color: 'var(--bb-ink)', fontSize: '0.88rem', resize: 'vertical',
+                    outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
+                  }}
+                />
+                <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                  <button type="button" onClick={clearGalleryAnnotations} disabled={isApplyingGalleryEdit} className="bb-icon-btn">
+                    <Eraser size={14} /> Clear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={applyGalleryAnnotationEdit}
+                    disabled={isApplyingGalleryEdit || (!annotateNotes.trim() && textAnnotations.length === 0)}
+                    className="bb-btn-primary"
+                    style={{ minHeight: 36, padding: '8px 14px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 7, opacity: (isApplyingGalleryEdit || (!annotateNotes.trim() && textAnnotations.length === 0)) ? 0.7 : 1 }}
+                  >
+                    {isApplyingGalleryEdit
+                      ? <Sparkles size={14} style={{ animation: 'spin 1.4s linear infinite' }} />
+                      : <Check size={14} />}
+                    {isApplyingGalleryEdit ? 'Applying…' : 'Apply AI edit → Moodboard'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

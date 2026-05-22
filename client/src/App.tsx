@@ -20,7 +20,6 @@ import Customers from './views/internal/Customers'
 import CustomerProfile from './views/internal/CustomerProfile'
 import VoiceIntake from './views/internal/VoiceIntake'
 import MagicMovement from './views/internal/MagicMovement'
-import MagicEditor from './views/internal/MagicEditor'
 import Studio3D from './views/internal/Studio3D'
 import ManufacturabilityCheck from './views/internal/ManufacturabilityCheck'
 import ProjectTimeline from './views/internal/ProjectTimeline'
@@ -45,7 +44,6 @@ function InternalPage() {
     if (sub.startsWith('customers/')) return <CustomerProfile projectId={sub.split('/')[1]} />
     if (sub === 'intake') return <VoiceIntake />
     if (sub === 'magic-movement') return <MagicMovement />
-    if (sub === 'magic-editor') return <MagicEditor />
     if (sub === '3d-studio') return <Studio3D />
     if (sub === 'manufacturability') return <ManufacturabilityCheck />
     if (sub === 'timeline') return <ProjectTimeline />

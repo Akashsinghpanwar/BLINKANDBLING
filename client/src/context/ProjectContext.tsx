@@ -80,6 +80,20 @@ export interface CadFile {
   updatedAt?: string
 }
 
+export interface ProjectUpdateInput {
+  projectName?: string
+  budget?: string
+  metalPreference?: string
+  gemstonePreference?: string
+  ringSize?: string
+  timeline?: string
+  stage?: string
+  fullName?: string
+  email?: string
+  phone?: string
+  status?: string
+}
+
 interface ProjectContextValue {
   isLoading: boolean
   projects: Project[]
@@ -89,6 +103,7 @@ interface ProjectContextValue {
   setPortalProject: (project: Project | null) => void
   refreshPortalProject: () => Promise<Project | null>
   addProject: (input: { fullName: string; email?: string; phone?: string; projectName?: string }) => Promise<Project>
+  updateProject: (id: string, fields: ProjectUpdateInput) => Promise<Project>
   refreshProjects: () => Promise<void>
   setActiveProject: (id: string) => void
   setFeatureAccess: (id: string, feature: FeatureKey, unlocked: boolean) => Promise<void>
@@ -102,10 +117,10 @@ interface ProjectContextValue {
   refreshGallery: () => Promise<void>
   renameAiGeneratedFolder: (id: string, name: string) => Promise<void>
   deleteAiGeneratedFolder: (id: string) => Promise<void>
-  editorImage: GalleryImage | null
-  setEditorImage: (image: GalleryImage | null) => void
   pendingMagicReference: GalleryImage | null
   setPendingMagicReference: (image: GalleryImage | null) => void
+  pendingEditResult: GalleryImage | null
+  setPendingEditResult: (image: GalleryImage | null) => void
   cadFiles: CadFile[]
   viewerCadFile: CadFile | null
   setViewerCadFile: (file: CadFile | null) => void
@@ -128,66 +143,18 @@ const STAGES: Stage[] = [
   { id: 'delivered', label: 'Delivered', icon: 'DL' },
 ]
 
-const INITIAL_PROJECTS: Project[] = [
-  {
-    id: 'proj_001',
-    name: 'Emma — Halo Engagement Ring',
-    customer: { id: 'cust_001', name: 'Emma Wilson', email: 'emma@email.com', phone: '+44 20 7123 4567' },
-    status: 'in_progress',
-    stage: 'concept_review',
-    budget: '£4,000 – £6,400',
-    metalPreference: '18K White Gold',
-    gemstonePreference: 'Diamond, 1.5ct minimum',
-    ringSize: '6.5',
-    cadUnlocked: false,
-    timeline: '4–6 weeks',
-    createdAt: '2026-01-15',
-    updatedAt: '2026-01-25'
-  },
-  {
-    id: 'proj_002',
-    name: 'Sarah — Cushion Solitaire',
-    customer: { id: 'cust_002', name: 'Sarah Johnson', email: 'sarah@email.com', phone: '+44 20 7234 5678' },
-    status: 'pending_approval',
-    stage: '3d_render',
-    budget: '£2,400 – £4,000',
-    metalPreference: 'Platinum',
-    gemstonePreference: 'Sapphire, cushion cut',
-    ringSize: '5',
-    cadUnlocked: false,
-    timeline: '3–4 weeks',
-    createdAt: '2026-01-18',
-    updatedAt: '2026-01-24'
-  },
-  {
-    id: 'proj_003',
-    name: 'Jessica — Eternity Band',
-    customer: { id: 'cust_003', name: 'Jessica Taylor', email: 'jessica@email.com', phone: '+44 20 7345 6789' },
-    status: 'manufacturing',
-    stage: 'production',
-    budget: '£1,600 – £2,800',
-    metalPreference: '14K Yellow Gold',
-    gemstonePreference: 'Diamonds, 0.5ct total',
-    ringSize: '7',
-    cadUnlocked: false,
-    timeline: '2–3 weeks',
-    createdAt: '2026-01-10',
-    updatedAt: '2026-01-23'
-  }
-]
-
 const ProjectContext = createContext<ProjectContextValue | null>(null)
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
   // Hydrate from cache synchronously — UI renders with stale data instantly
-  const [isLoading, setIsLoading] = useState(() => !lsGet<Project[]>('projects'))
-  const [projects, setProjects] = useState<Project[]>(() => lsGet<Project[]>('projects') || INITIAL_PROJECTS)
+  const [isLoading, setIsLoading] = useState(true)
+  const [projects, setProjects] = useState<Project[]>(() => lsGet<Project[]>('projects') || [])
   const [activeProject, setActiveProjectState] = useState<Project | null>(null)
   const [portalProject, setPortalProject] = useState<Project | null>(() => lsGet<Project>('portal-project'))
   const [intakeDNA, setIntakeDNAState] = useState<IntakeDNA | null>(null)
   const [aiGeneratedFolders, setAiGeneratedFolders] = useState<GalleryFolder[]>([])
-  const [editorImage, setEditorImage] = useState<GalleryImage | null>(null)
   const [pendingMagicReference, setPendingMagicReference] = useState<GalleryImage | null>(null)
+  const [pendingEditResult, setPendingEditResult] = useState<GalleryImage | null>(null)
   const [cadFiles, setCadFiles] = useState<CadFile[]>([])
   const [viewerCadFile, setViewerCadFile] = useState<CadFile | null>(null)
   const aiGeneratedImages = useMemo(
@@ -202,9 +169,13 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     const res = await fetch('/api/customers', { credentials: 'include' })
     if (!res.ok) return
     const data = await res.json()
-    if (Array.isArray(data?.customers) && data.customers.length) {
+    if (Array.isArray(data?.customers)) {
       setProjects(data.customers)
-      lsSet('projects', data.customers)
+      if (data.customers.length) {
+        lsSet('projects', data.customers)
+      } else {
+        lsClear('projects')
+      }
       setActiveProjectState(prev => prev ? data.customers.find((p: Project) => p.id === prev.id) || prev : null)
     }
   }, [])
@@ -218,7 +189,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     const data = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(data?.error || 'Could not add client')
     const project = data.customer as Project
-    setProjects(prev => [project, ...prev])
+    await refreshProjects()
     return project
   }
   const refreshPortalProject = useCallback(async () => {
@@ -238,6 +209,20 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setProjects(prev => prev.map(p => p.id === project.id ? project : p))
     setActiveProjectState(prev => prev?.id === project.id ? project : prev)
     setPortalProject(prev => prev?.id === project.id ? project : prev)
+  }
+
+  const updateProject = async (id: string, fields: ProjectUpdateInput): Promise<Project> => {
+    const res = await fetch(`/api/customers/${id}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fields),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data?.error || 'Could not update customer')
+    const project = data.customer as Project
+    applyProjectUpdate(project)
+    return project
   }
 
   const setFeatureAccess = async (id: string, feature: FeatureKey, unlocked: boolean) => {
@@ -392,6 +377,13 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true
 
+    // Bust stale localStorage cache that may contain old dummy projects
+    const cached = lsGet<Project[]>('projects')
+    if (cached?.some(p => p.id === 'proj_001' || p.id === 'proj_002' || p.id === 'proj_003')) {
+      lsClear('projects')
+      setProjects([])
+    }
+
     // Hydrate gallery from IndexedDB (async, doesn't block render)
     idbGet<GalleryFolder[]>('gallery').then(cached => {
       if (cached && alive) setAiGeneratedFolders(cached)
@@ -424,6 +416,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       setPortalProject,
       refreshPortalProject,
       addProject,
+      updateProject,
       refreshProjects,
       setActiveProject,
       setFeatureAccess,
@@ -437,10 +430,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       refreshGallery,
       renameAiGeneratedFolder,
       deleteAiGeneratedFolder,
-      editorImage,
-      setEditorImage,
       pendingMagicReference,
       setPendingMagicReference,
+      pendingEditResult,
+      setPendingEditResult,
       cadFiles,
       viewerCadFile,
       setViewerCadFile,

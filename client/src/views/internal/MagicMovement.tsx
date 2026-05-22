@@ -2,10 +2,10 @@ import { useState, useRef, useEffect, type CSSProperties } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   CircleDot, Crown, Download, Eraser, Flower2, Gem, ImagePlus,
-  Paintbrush, RefreshCcw, Send, Sparkles, Star, Wand2, Watch, X,
-  Timer, Heart, Link, Disc3, Diamond,
+  Pencil, RefreshCcw, Send, Sparkles, Star, Wand2, Watch, X, Check,
+  Timer, Heart, Link, Disc3, Diamond, Type,
 } from 'lucide-react'
-import { useLocation } from 'wouter'
+import { useAnnotationCanvas } from '../../hooks/useAnnotationCanvas'
 import { useApp } from '../../context/AppContext'
 import { useProjects } from '../../context/ProjectContext'
 import { photos } from '../../lib/photos'
@@ -57,10 +57,10 @@ function usableImageUrl(value: unknown): string | null {
 export default function MagicMovement() {
   const { showToast } = useApp()
   const {
-    intakeDNA, saveAiGeneratedFolder, setEditorImage,
+    intakeDNA, saveAiGeneratedFolder,
     pendingMagicReference, setPendingMagicReference,
+    pendingEditResult, setPendingEditResult,
   } = useProjects()
-  const [, setLocation] = useLocation()
 
   const [prompt, setPrompt]     = useState('')
   const [category, setCategory] = useState<typeof CATEGORY_OPTIONS[number]['id']>('women_watch')
@@ -120,6 +120,23 @@ export default function MagicMovement() {
     if (matched) setCategory(matched.id)
     showToast('Luna brief applied', 'success')
   }
+
+  /* ── Pending edit result from gallery ── */
+  useEffect(() => {
+    if (!pendingEditResult) return
+    const rendered: Render = {
+      id: `edit_gallery_${Date.now()}`,
+      url: pendingEditResult.url,
+      images: [{ angle: 'Edited', url: pendingEditResult.url }],
+      prompt: pendingEditResult.prompt || '',
+      ts: Date.now(),
+    }
+    setGenerated(rendered)
+    setHistory(prev => [rendered, ...prev].slice(0, 8))
+    setDisplayUrl(null)
+    setPendingEditResult(null)
+    showToast('Edited design loaded', 'success')
+  }, [pendingEditResult])
 
   /* ── Pending magic reference ── */
   useEffect(() => {
@@ -282,16 +299,77 @@ export default function MagicMovement() {
     }
   }
 
-  const openMagicEditor = () => {
+  /* ── Inline annotation edit ── */
+  const [annotateMode, setAnnotateMode] = useState(false)
+  const [isApplyingEdit, setIsApplyingEdit] = useState(false)
+
+  const {
+    annotationTool, setAnnotationTool,
+    annotateNotes, setAnnotateNotes,
+    pendingText, pendingTextValue, setPendingTextValue,
+    textAnnotations,
+    canvasRef: annotationCanvasRef,
+    imageWrapRef,
+    onPointerDown: annotatePointerDown,
+    onPointerMove: annotatePointerMove,
+    onPointerUp: annotatePointerUp,
+    onCanvasClick: annotateCanvasClick,
+    commitPendingText,
+    clearAnnotations,
+    resetAll,
+    buildAnnotatedComposite,
+  } = useAnnotationCanvas(annotateMode, displayUrl ?? generated?.url)
+
+  const closeAnnotateMode = () => { resetAll(); setAnnotateMode(false) }
+
+  const applyAnnotationEdit = async () => {
     if (!generated) return
-    setEditorImage({
-      id: generated.id, url: generated.url,
-      label: 'Magic Movement render',
-      angle: generated.images.find(img => img.url === generated.url)?.angle || '',
-      prompt: generated.prompt, source: 'ai',
-      createdAt: new Date(generated.ts).toISOString(),
-    })
-    setLocation('/workspace/magic-editor')
+    if (!annotateNotes.trim() && textAnnotations.length === 0) {
+      showToast('Draw on the image or write a text label first', 'error')
+      return
+    }
+    setIsApplyingEdit(true)
+    try {
+      const { dataUrl, textLabels } = await buildAnnotatedComposite(displayUrl ?? generated.url)
+      const res = await fetch('/api/ai-render/edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          baseImage: dataUrl,
+          prompt: annotateNotes,
+          textLabels,
+          previousPrompt: generated.prompt,
+          category,
+        }),
+      })
+      const data = await res.json().catch(() => null) as { imageUrl?: string; error?: string } | null
+      if (!res.ok || !data?.imageUrl) throw new Error(data?.error || `Edit failed (${res.status})`)
+
+      const edited: Render = {
+        id: `edit_${Date.now()}`,
+        url: data.imageUrl,
+        images: [{ angle: 'Edited', url: data.imageUrl }],
+        prompt: [generated.prompt, textLabels.length ? `Labels: ${textLabels.join(', ')}` : '', annotateNotes].filter(Boolean).join('\n\nEdit: '),
+        ts: Date.now(),
+      }
+      setGenerated(edited)
+      setHistory(prev => [edited, ...prev].slice(0, 8))
+      setDisplayUrl(null)
+      saveAiGeneratedImage({
+        url: edited.url,
+        label: `Edited - ${new Date(edited.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+        prompt: edited.prompt,
+      })
+      showToast('Edit applied', 'success')
+      closeAnnotateMode()
+
+      const transparent = await removeWhiteBackground(edited.url)
+      setDisplayUrl(transparent)
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Edit failed', 'error')
+    } finally {
+      setIsApplyingEdit(false)
+    }
   }
 
   const clearAll = () => {
@@ -560,19 +638,67 @@ export default function MagicMovement() {
                   className="bb-mm-result"
                   style={{ width: '100%', maxWidth: 700, textAlign: 'center' }}
                 >
-                  {/* Generated image */}
-                  <img
-                    className="bb-mm-result-image"
-                    src={displayUrl ?? generated.url}
-                    alt="Generated render"
-                    style={{
-                      width: '100%', maxHeight: 600,
-                      display: 'block', objectFit: 'contain',
-                      filter:
-                        'drop-shadow(0 32px 56px rgba(139,107,181,0.32))' +
-                        ' drop-shadow(0 12px 28px rgba(207,95,145,0.22))',
-                    }}
-                  />
+                  {/* Generated image + annotation overlay */}
+                  <div
+                    ref={imageWrapRef}
+                    style={{ position: 'relative', display: 'inline-block', width: '100%' }}
+                  >
+                    <img
+                      className="bb-mm-result-image"
+                      src={displayUrl ?? generated.url}
+                      alt="Generated render"
+                      style={{
+                        width: '100%', maxHeight: 600,
+                        display: 'block', objectFit: 'contain',
+                        filter:
+                          'drop-shadow(0 32px 56px rgba(139,107,181,0.32))' +
+                          ' drop-shadow(0 12px 28px rgba(207,95,145,0.22))',
+                      }}
+                    />
+                    {annotateMode && (
+                      <>
+                        <canvas
+                          ref={annotationCanvasRef}
+                          onPointerDown={annotatePointerDown}
+                          onPointerMove={annotatePointerMove}
+                          onPointerUp={annotatePointerUp}
+                          onPointerCancel={annotatePointerUp}
+                          onClick={annotateCanvasClick}
+                          style={{
+                            position: 'absolute', left: 0, top: 0,
+                            cursor: annotationTool === 'text' ? 'text' : 'crosshair',
+                            touchAction: 'none', background: 'transparent',
+                          }}
+                        />
+                        {pendingText && (
+                          <input
+                            autoFocus
+                            value={pendingTextValue}
+                            onChange={e => setPendingTextValue(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commitPendingText() } if (e.key === 'Escape') { commitPendingText() } }}
+                            onBlur={commitPendingText}
+                            style={{
+                              position: 'absolute',
+                              left: pendingText.x,
+                              top: pendingText.y - 28,
+                              minWidth: 100, maxWidth: 260,
+                              padding: '3px 7px',
+                              border: '1.5px solid #e11d48',
+                              borderRadius: 5,
+                              background: 'rgba(255,255,255,0.97)',
+                              color: '#e11d48',
+                              fontWeight: 700,
+                              fontSize: 13,
+                              outline: 'none',
+                              zIndex: 5,
+                              boxShadow: '0 2px 10px rgba(225,29,72,0.18)',
+                            }}
+                            placeholder="Type & press Enter…"
+                          />
+                        )}
+                      </>
+                    )}
+                  </div>
 
                   {/* Icon action buttons */}
                   <motion.div
@@ -597,16 +723,16 @@ export default function MagicMovement() {
                       <span style={ICON_LABEL}>Regenerate</span>
                     </button>
 
-                    {/* Magic edit */}
+                    {/* Annotate (inline) */}
                     <button
-                      onClick={openMagicEditor}
-                      title="Magic edit"
-                      style={ICON_BTN}
+                      onClick={() => annotateMode ? closeAnnotateMode() : setAnnotateMode(true)}
+                      title={annotateMode ? 'Close annotate' : 'Annotate & edit'}
+                      style={annotateMode ? ICON_BTN_HOVER : ICON_BTN}
                       onMouseEnter={e => Object.assign(e.currentTarget.style, ICON_BTN_HOVER)}
-                      onMouseLeave={e => Object.assign(e.currentTarget.style, ICON_BTN)}
+                      onMouseLeave={e => Object.assign(e.currentTarget.style, annotateMode ? ICON_BTN_HOVER : ICON_BTN)}
                     >
-                      <Paintbrush size={16} />
-                      <span style={ICON_LABEL}>Magic edit</span>
+                      <Pencil size={16} />
+                      <span style={ICON_LABEL}>{annotateMode ? 'Close' : 'Annotate'}</span>
                     </button>
 
                     {/* Download */}
@@ -623,6 +749,99 @@ export default function MagicMovement() {
                       <span style={ICON_LABEL}>Download</span>
                     </a>
                   </motion.div>
+
+                  {/* Annotation editor */}
+                  <AnimatePresence>
+                    {annotateMode && (
+                      <motion.div
+                        key="annotate-bar"
+                        initial={{ opacity: 0, y: 8, height: 0 }}
+                        animate={{ opacity: 1, y: 0, height: 'auto' }}
+                        exit={{ opacity: 0, y: -6, height: 0 }}
+                        transition={{ duration: 0.25 }}
+                        style={{
+                          marginTop: 18,
+                          padding: 14,
+                          background: 'rgba(255,255,255,0.78)',
+                          backdropFilter: 'blur(14px)',
+                          border: '1px solid rgba(207,95,145,0.18)',
+                          borderRadius: 14,
+                          boxShadow: '0 10px 28px rgba(207,95,145,0.10)',
+                          textAlign: 'left',
+                        }}
+                      >
+                        {/* Tool selector */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                          <span style={{ fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--bb-rose)', flex: 1 }}>
+                            Annotation tool
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setAnnotationTool('pen')}
+                            title="Draw / circle areas"
+                            style={{
+                              ...ICON_BTN,
+                              ...(annotationTool === 'pen' ? { background: 'rgba(207,95,145,0.12)', color: 'var(--bb-rose)', border: '1px solid rgba(207,95,145,0.3)' } : {}),
+                              padding: '7px 12px',
+                            }}
+                          >
+                            <Pencil size={13} /><span style={ICON_LABEL}>Draw</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAnnotationTool('text')}
+                            title="Click on image to type a label"
+                            style={{
+                              ...ICON_BTN,
+                              ...(annotationTool === 'text' ? { background: 'rgba(207,95,145,0.12)', color: 'var(--bb-rose)', border: '1px solid rgba(207,95,145,0.3)' } : {}),
+                              padding: '7px 12px',
+                            }}
+                          >
+                            <Type size={13} /><span style={ICON_LABEL}>Text</span>
+                          </button>
+                        </div>
+                        {annotationTool === 'text' && (
+                          <p style={{ margin: '0 0 10px', fontSize: '0.76rem', color: 'var(--bb-muted)', lineHeight: 1.45 }}>
+                            Click anywhere on the image to type a label — it will be placed exactly where you click.
+                          </p>
+                        )}
+                        <textarea
+                          value={annotateNotes}
+                          onChange={e => setAnnotateNotes(e.target.value)}
+                          placeholder="Optional extra notes (e.g. keep the setting style, use platinum)…"
+                          rows={2}
+                          style={{
+                            width: '100%', padding: '10px 12px', borderRadius: 10,
+                            border: '1px solid var(--bb-line)', background: '#fff',
+                            color: 'var(--bb-ink)', fontSize: '0.88rem',
+                            resize: 'vertical', outline: 'none', fontFamily: 'inherit',
+                          }}
+                        />
+                        <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                          <button type="button" onClick={clearAnnotations} disabled={isApplyingEdit} style={ICON_BTN}>
+                            <Eraser size={14} /><span style={ICON_LABEL}>Clear</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={applyAnnotationEdit}
+                            disabled={isApplyingEdit || (!annotateNotes.trim() && textAnnotations.length === 0)}
+                            style={{
+                              ...ICON_BTN,
+                              color: '#fff',
+                              background: 'linear-gradient(135deg, var(--bb-coral), var(--bb-rose) 55%, var(--bb-violet))',
+                              border: '1px solid transparent',
+                              opacity: (isApplyingEdit || (!annotateNotes.trim() && textAnnotations.length === 0)) ? 0.7 : 1,
+                            }}
+                          >
+                            {isApplyingEdit
+                              ? <Sparkles size={14} style={{ animation: 'spin 1.4s linear infinite' }} />
+                              : <Check size={14} />}
+                            <span style={ICON_LABEL}>{isApplyingEdit ? 'Applying…' : 'Apply AI edit'}</span>
+                          </button>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
 
                   {/* Concept label */}
                   <motion.div

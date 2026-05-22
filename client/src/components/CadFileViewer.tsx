@@ -77,7 +77,6 @@ function StlModel({ url }: { url: string }) {
     clone.center()
     return clone
   }, [geometry])
-
   return (
     <mesh geometry={normalized} castShadow receiveShadow>
       <meshStandardMaterial color="#d8d2ca" metalness={0.45} roughness={0.32} />
@@ -105,7 +104,6 @@ function PlyModel({ url }: { url: string }) {
     clone.center()
     return clone
   }, [geometry])
-
   return (
     <mesh geometry={normalized} castShadow receiveShadow>
       <meshStandardMaterial color="#d8d2ca" metalness={0.35} roughness={0.38} />
@@ -156,7 +154,7 @@ function CadModel({ file }: { file: UploadedCadFile }) {
 
 function ViewerCanvas({ file }: { file: UploadedCadFile }) {
   return (
-    <Canvas shadows dpr={[1, 2]} gl={{ antialias: true }}>
+    <Canvas shadows dpr={[1, 2]} gl={{ antialias: true }} style={{ display: 'block', width: '100%', height: '100%' }}>
       <PerspectiveCamera makeDefault position={[8, 7, 10]} fov={35} />
       <color attach="background" args={['#d4d4d4']} />
       <ambientLight intensity={0.45} />
@@ -172,6 +170,19 @@ function ViewerCanvas({ file }: { file: UploadedCadFile }) {
   )
 }
 
+/* ─── responsive hook ─────────────────────────────────── */
+function useMobile(breakpoint = 768) {
+  const [mobile, setMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < breakpoint : false,
+  )
+  useEffect(() => {
+    const fn = () => setMobile(window.innerWidth < breakpoint)
+    window.addEventListener('resize', fn, { passive: true })
+    return () => window.removeEventListener('resize', fn)
+  }, [breakpoint])
+  return mobile
+}
+
 export default function CadFileViewer() {
   const { showToast } = useApp()
   const { cadFiles, saveCadFile, deleteCadFile, viewerCadFile, setViewerCadFile } = useProjects()
@@ -179,6 +190,7 @@ export default function CadFileViewer() {
   const [activeSavedId, setActiveSavedId] = useState<string | null>(null)
   const [viewKey, setViewKey] = useState(0)
   const [saving, setSaving] = useState(false)
+  const mobile = useMobile()
 
   useEffect(() => {
     if (!viewerCadFile) return
@@ -232,200 +244,242 @@ export default function CadFileViewer() {
     }
   }
 
+  /* ─── viewer panel ───────────────────────────────────── */
+  const viewerHeight = mobile ? Math.min(Math.round(window.innerWidth * 0.82), 400) : 640
+  const viewerSection = (
+    <section
+      className="bb-card"
+      style={{
+        height: viewerHeight,
+        borderRadius: 18,
+        overflow: 'hidden',
+        position: 'relative',
+        background: 'linear-gradient(145deg, #2f2f31, #d7d7d7 38%, #f6f1ee)',
+        border: '1px solid rgba(184,184,184,0.9)',
+        boxShadow: '0 24px 70px rgba(31,27,29,0.18)',
+        flexShrink: 0,
+      }}
+    >
+      {/* file name badge */}
+      {file && (
+        <div style={{
+          position: 'absolute', top: 12, left: 12, right: 12, zIndex: 2,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: 12, pointerEvents: 'none',
+        }}>
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+            borderRadius: 999, padding: mobile ? '6px 10px' : '8px 12px',
+            background: 'rgba(255,255,255,0.78)', backdropFilter: 'blur(12px)',
+            color: 'var(--bb-ink)', fontWeight: 900,
+            fontSize: mobile ? '0.7rem' : '0.78rem',
+            maxWidth: '80%', overflow: 'hidden',
+            textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            <Box size={mobile ? 12 : 14} /> {file.name}
+          </span>
+
+          {/* touch hint for mobile */}
+          {mobile && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              borderRadius: 999, padding: '5px 9px',
+              background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(10px)',
+              color: 'var(--bb-muted)', fontSize: '0.65rem', fontWeight: 700,
+              pointerEvents: 'none',
+            }}>
+              👆 Drag to rotate
+            </span>
+          )}
+        </div>
+      )}
+
+      {file?.previewKind && file.previewKind !== 'unsupported' ? (
+        <div style={{ width: '100%', height: '100%' }}>
+          <ViewerCanvas key={viewKey} file={file} />
+        </div>
+      ) : (
+        <div style={{ height: '100%', display: 'grid', placeItems: 'center', textAlign: 'center', padding: mobile ? 20 : 28 }}>
+          <div style={{ maxWidth: 420 }}>
+            <div style={{
+              width: mobile ? 56 : 74, height: mobile ? 56 : 74,
+              borderRadius: '50%', display: 'grid', placeItems: 'center',
+              margin: '0 auto 16px', background: '#f5ede8', color: 'var(--bb-rose)',
+            }}>
+              {file ? <FileArchive size={mobile ? 22 : 30} /> : <Box size={mobile ? 22 : 30} />}
+            </div>
+            <h2 style={{ margin: '0 0 10px', color: 'var(--bb-ink)', fontFamily: 'var(--app-font-display)', fontWeight: 500, fontSize: mobile ? '1.1rem' : '1.4rem' }}>
+              {file ? 'File saved for handoff' : 'Upload a CAD file'}
+            </h2>
+            <p style={{ margin: 0, color: 'var(--bb-muted)', lineHeight: 1.65, fontSize: mobile ? '0.82rem' : '0.9rem' }}>
+              {file
+                ? `${file.extension.toUpperCase()} files are accepted, but this format needs a dedicated CAD kernel/viewer for live geometry preview.`
+                : 'Use this viewer for supplier CAD files, customer uploads, or generated mesh exports.'}
+            </p>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+
+  /* ─── sidebar panel ──────────────────────────────────── */
+  const sidebarSection = (
+    <aside style={{ display: 'grid', gap: 12, alignContent: 'start' }}>
+
+      {/* Upload + File info — side-by-side on mobile */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: mobile ? '1fr 1fr' : '1fr',
+        gap: 12,
+      }}>
+        {/* Upload */}
+        <section
+          className="bb-card"
+          style={{
+            padding: mobile ? 14 : 18,
+            borderRadius: 16,
+            background: 'linear-gradient(180deg, #ffffff, #fff8f5)',
+            boxShadow: '0 18px 42px rgba(53,40,35,0.10)',
+          }}
+        >
+          <span className="bb-eyebrow" style={{ color: 'var(--bb-pillar-2)', display: 'block', marginBottom: 10 }}>Import</span>
+          <label
+            className="bb-btn-primary bb-lift"
+            style={{ width: '100%', justifyContent: 'center', cursor: 'pointer', fontSize: mobile ? '0.78rem' : undefined }}
+          >
+            <Upload size={14} /> {saving ? 'Saving…' : 'Upload CAD'}
+            <input
+              type="file"
+              accept={ACCEPTED_EXTENSIONS.join(',')}
+              disabled={saving}
+              onChange={(e) => handleFile(e.target.files?.[0])}
+              style={{ display: 'none' }}
+            />
+          </label>
+          {!mobile && (
+            <p style={{ margin: '10px 0 0', color: 'var(--bb-muted)', fontSize: '0.8rem', lineHeight: 1.5 }}>
+              STL, OBJ, GLB, GLTF, PLY, 3MF, DAE, FBX and 3DS open in the live viewer. STEP, IGES, 3DM, DXF and DWG are stored for CAD handoff.
+            </p>
+          )}
+        </section>
+
+        {/* File info */}
+        <section className="bb-card" style={{ padding: mobile ? 14 : 18, borderRadius: 16, boxShadow: '0 18px 42px rgba(53,40,35,0.08)' }}>
+          <span className="bb-eyebrow" style={{ color: 'var(--bb-pillar-3)', display: 'block', marginBottom: 10 }}>File</span>
+          {file ? (
+            <div style={{ display: 'grid', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, display: 'grid', placeItems: 'center', background: '#f5ede8', color: 'var(--bb-rose)', flexShrink: 0 }}>
+                  {file.previewKind === 'unsupported' ? <FileArchive size={15} /> : <Box size={15} />}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <strong style={{ color: 'var(--bb-ink)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.8rem' }}>{file.name}</strong>
+                  <span style={{ color: 'var(--bb-muted)', fontSize: '0.72rem' }}>{file.extension.toUpperCase()} · {formatSize(file.size)}</span>
+                </div>
+              </div>
+              <button className="bb-btn-secondary" onClick={() => setViewKey(prev => prev + 1)} style={{ width: '100%', justifyContent: 'center', fontSize: '0.8rem' }}>
+                <RotateCcw size={13} /> Reset
+              </button>
+              <a className="bb-btn-secondary" href={file.url} download={file.name} style={{ width: '100%', justifyContent: 'center', textDecoration: 'none', fontSize: '0.8rem' }}>
+                <Download size={13} /> Download
+              </a>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--bb-muted)', fontSize: '0.84rem' }}>
+              <FileText size={15} /> No file loaded
+            </div>
+          )}
+        </section>
+      </div>
+
+      {/* Saved CAD folder */}
+      <section className="bb-card" style={{ padding: mobile ? 14 : 18, borderRadius: 16, boxShadow: '0 18px 42px rgba(53,40,35,0.08)' }}>
+        <span className="bb-eyebrow" style={{ color: 'var(--bb-pillar-1)', display: 'block', marginBottom: 10 }}>Saved CAD folder</span>
+        <div style={{ display: 'grid', gap: 7, maxHeight: mobile ? 200 : 330, overflowY: 'auto', paddingRight: 4 }}>
+          {cadFiles.map(saved => {
+            const extension = (saved.extension || saved.name.split('.').pop() || '').toUpperCase()
+            const active = activeSavedId === saved.id
+            return (
+              <div
+                key={saved.id}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr auto',
+                  gap: 6,
+                  alignItems: 'center',
+                  border: `1px solid ${active ? 'var(--bb-rose)' : 'var(--bb-line)'}`,
+                  borderRadius: 10,
+                  background: active ? 'linear-gradient(135deg, #fff7f4, #ffffff)' : '#fff',
+                  padding: mobile ? 8 : 9,
+                  boxShadow: active ? '0 12px 26px rgba(207,95,145,0.12)' : 'none',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => openSaved(saved)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, border: 0, background: 'transparent', padding: 0, textAlign: 'left', cursor: 'pointer' }}
+                >
+                  <Box size={14} style={{ color: 'var(--bb-rose)', flexShrink: 0 }} />
+                  <span style={{ minWidth: 0 }}>
+                    <strong style={{ display: 'block', color: 'var(--bb-ink)', fontSize: '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{saved.name}</strong>
+                    <span style={{ display: 'block', color: 'var(--bb-muted)', fontSize: '0.7rem' }}>{extension} · {formatSize(saved.size || 0)}</span>
+                  </span>
+                </button>
+                <button className="bb-icon-btn" onClick={() => void removeSaved(saved.id)} aria-label="Delete CAD file">
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            )
+          })}
+          {cadFiles.length === 0 && (
+            <div style={{ color: 'var(--bb-muted)', fontSize: '0.84rem', lineHeight: 1.5 }}>No CAD files saved yet.</div>
+          )}
+        </div>
+      </section>
+    </aside>
+  )
+
   return (
-    <div style={{ display: 'grid', gap: 14 }}>
+    <div style={{ display: 'grid', gap: 12 }}>
+      {/* Header */}
       <section
         style={{
           borderRadius: 18,
           border: '1px solid rgba(210,185,176,0.9)',
           background: 'linear-gradient(135deg, rgba(255,255,255,0.96), rgba(255,247,244,0.88))',
           boxShadow: '0 22px 70px rgba(40,32,30,0.12)',
-          padding: 16,
+          padding: mobile ? '12px 16px' : 16,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: 14,
+          gap: 12,
         }}
       >
         <div>
           <span className="bb-eyebrow" style={{ color: 'var(--bb-rose)' }}>AutoCAD Viewer</span>
-          <h2 style={{ margin: '4px 0 0', color: 'var(--bb-ink)', fontFamily: 'var(--app-font-display)', fontWeight: 500, fontSize: '1.55rem' }}>
+          <h2 style={{ margin: '4px 0 0', color: 'var(--bb-ink)', fontFamily: 'var(--app-font-display)', fontWeight: 500, fontSize: mobile ? '1.2rem' : '1.55rem' }}>
             CAD file studio
           </h2>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--bb-muted)', fontWeight: 800, fontSize: '0.82rem' }}>
-          <FileArchive size={16} /> {cadFiles.length} saved files
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--bb-muted)', fontWeight: 800, fontSize: mobile ? '0.74rem' : '0.82rem' }}>
+          <FileArchive size={14} /> {cadFiles.length} files
         </div>
       </section>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '340px minmax(0, 1fr)', gap: 14, minHeight: 640 }}>
-        <aside style={{ display: 'grid', gap: 14, alignContent: 'start' }}>
-          <section
-            className="bb-card"
-            style={{
-              padding: 18,
-              borderRadius: 16,
-              background: 'linear-gradient(180deg, #ffffff, #fff8f5)',
-              boxShadow: '0 18px 42px rgba(53,40,35,0.10)',
-            }}
-          >
-          <span className="bb-eyebrow" style={{ color: 'var(--bb-pillar-2)', display: 'block', marginBottom: 12 }}>Import</span>
-          <label
-            className="bb-btn-primary bb-lift"
-            style={{ width: '100%', justifyContent: 'center', cursor: 'pointer' }}
-          >
-            <Upload size={16} /> {saving ? 'Saving...' : 'Upload CAD file'}
-            <input
-              type="file"
-              accept={ACCEPTED_EXTENSIONS.join(',')}
-              disabled={saving}
-              onChange={(event) => handleFile(event.target.files?.[0])}
-              style={{ display: 'none' }}
-            />
-          </label>
-          <p style={{ margin: '12px 0 0', color: 'var(--bb-muted)', fontSize: '0.82rem', lineHeight: 1.55 }}>
-            STL, OBJ, GLB, GLTF, PLY, 3MF, DAE, FBX and 3DS open in the live viewer. STEP, IGES, 3DM, DXF and DWG are stored for CAD handoff.
-          </p>
-        </section>
-
-        <section className="bb-card" style={{ padding: 18, borderRadius: 16, boxShadow: '0 18px 42px rgba(53,40,35,0.08)' }}>
-          <span className="bb-eyebrow" style={{ color: 'var(--bb-pillar-1)', display: 'block', marginBottom: 12 }}>Saved CAD folder</span>
-          <div style={{ display: 'grid', gap: 8, maxHeight: 330, overflowY: 'auto', paddingRight: 4 }}>
-            {cadFiles.map(saved => {
-              const extension = (saved.extension || saved.name.split('.').pop() || '').toUpperCase()
-              const active = activeSavedId === saved.id
-              return (
-                <div
-                  key={saved.id}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr auto',
-                    gap: 8,
-                    alignItems: 'center',
-                    border: `1px solid ${active ? 'var(--bb-rose)' : 'var(--bb-line)'}`,
-                    borderRadius: 12,
-                    background: active ? 'linear-gradient(135deg, #fff7f4, #ffffff)' : '#fff',
-                    padding: 9,
-                    boxShadow: active ? '0 12px 26px rgba(207,95,145,0.12)' : 'none',
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => openSaved(saved)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0, border: 0, background: 'transparent', padding: 0, textAlign: 'left', cursor: 'pointer' }}
-                  >
-                    <Box size={16} style={{ color: 'var(--bb-rose)', flexShrink: 0 }} />
-                    <span style={{ minWidth: 0 }}>
-                      <strong style={{ display: 'block', color: 'var(--bb-ink)', fontSize: '0.82rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{saved.name}</strong>
-                      <span style={{ display: 'block', color: 'var(--bb-muted)', fontSize: '0.72rem' }}>{extension || 'FILE'} - {formatSize(saved.size || 0)}</span>
-                    </span>
-                  </button>
-                  <button className="bb-icon-btn" onClick={() => void removeSaved(saved.id)} aria-label="Delete CAD file">
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              )
-            })}
-            {cadFiles.length === 0 && (
-              <div style={{ color: 'var(--bb-muted)', fontSize: '0.86rem', lineHeight: 1.5 }}>No CAD files saved yet.</div>
-            )}
-          </div>
-        </section>
-
-        <section className="bb-card" style={{ padding: 18, borderRadius: 16, boxShadow: '0 18px 42px rgba(53,40,35,0.08)' }}>
-          <span className="bb-eyebrow" style={{ color: 'var(--bb-pillar-3)', display: 'block', marginBottom: 12 }}>File</span>
-          {file ? (
-            <div style={{ display: 'grid', gap: 10 }}>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                <div style={{ width: 42, height: 42, borderRadius: 10, display: 'grid', placeItems: 'center', background: '#f5ede8', color: 'var(--bb-rose)' }}>
-                  {file.previewKind === 'unsupported' ? <FileArchive size={18} /> : <Box size={18} />}
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <strong style={{ color: 'var(--bb-ink)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</strong>
-                  <span style={{ color: 'var(--bb-muted)', fontSize: '0.8rem' }}>{file.extension.toUpperCase()} - {formatSize(file.size)}</span>
-                </div>
-              </div>
-              <button className="bb-btn-secondary" onClick={() => setViewKey(prev => prev + 1)} style={{ width: '100%', justifyContent: 'center' }}>
-                <RotateCcw size={15} /> Reset viewer
-              </button>
-              <a className="bb-btn-secondary" href={file.url} download={file.name} style={{ width: '100%', justifyContent: 'center', textDecoration: 'none' }}>
-                <Download size={15} /> Download file
-              </a>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', color: 'var(--bb-muted)', fontSize: '0.9rem' }}>
-              <FileText size={17} /> No CAD file loaded
-            </div>
-          )}
-        </section>
-      </aside>
-
-      <section
-        className="bb-card"
-        style={{
-          minHeight: 640,
-          borderRadius: 18,
-          overflow: 'hidden',
-          position: 'relative',
-          background: 'linear-gradient(145deg, #2f2f31, #d7d7d7 38%, #f6f1ee)',
-          border: '1px solid rgba(184,184,184,0.9)',
-          boxShadow: '0 24px 70px rgba(31,27,29,0.18)',
-        }}
-      >
-        {file && (
-          <div style={{
-            position: 'absolute',
-            top: 14,
-            left: 14,
-            right: 14,
-            zIndex: 2,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-            pointerEvents: 'none',
-          }}>
-            <span style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              borderRadius: 999,
-              padding: '8px 12px',
-              background: 'rgba(255,255,255,0.78)',
-              backdropFilter: 'blur(12px)',
-              color: 'var(--bb-ink)',
-              fontWeight: 900,
-              fontSize: '0.78rem',
-              maxWidth: '70%',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}>
-              <Box size={14} /> {file.name}
-            </span>
-          </div>
-        )}
-        {file?.previewKind && file.previewKind !== 'unsupported' ? (
-          <ViewerCanvas key={viewKey} file={file} />
-        ) : (
-          <div style={{ height: '100%', minHeight: 620, display: 'grid', placeItems: 'center', textAlign: 'center', padding: 28 }}>
-            <div style={{ maxWidth: 460 }}>
-              <div style={{ width: 74, height: 74, borderRadius: '50%', display: 'grid', placeItems: 'center', margin: '0 auto 18px', background: '#f5ede8', color: 'var(--bb-rose)' }}>
-                {file ? <FileArchive size={30} /> : <Box size={30} />}
-              </div>
-              <h2 style={{ margin: '0 0 10px', color: 'var(--bb-ink)', fontFamily: 'var(--app-font-display)', fontWeight: 500 }}>
-                {file ? 'File saved for handoff' : 'Upload a CAD file'}
-              </h2>
-              <p style={{ margin: 0, color: 'var(--bb-muted)', lineHeight: 1.65 }}>
-                {file
-                  ? `${file.extension.toUpperCase()} files are accepted, but this format needs a dedicated CAD kernel/viewer for live geometry preview.`
-                  : 'Use this viewer for supplier CAD files, customer uploads, or generated mesh exports.'}
-              </p>
-            </div>
-          </div>
-        )}
-      </section>
-      </div>
+      {/* Body — responsive layout */}
+      {mobile ? (
+        /* ── Mobile: viewer on top, sidebar below ── */
+        <div style={{ display: 'grid', gap: 12 }}>
+          {viewerSection}
+          {sidebarSection}
+        </div>
+      ) : (
+        /* ── Desktop: sidebar left, viewer right ── */
+        <div style={{ display: 'grid', gridTemplateColumns: '340px minmax(0, 1fr)', gap: 14 }}>
+          {sidebarSection}
+          {viewerSection}
+        </div>
+      )}
     </div>
   )
 }

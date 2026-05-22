@@ -8,21 +8,32 @@ if (existsSync(envPath)) {
   process.loadEnvFile?.(envPath);
 }
 
-const [{ verifyDbConnection }, { default: app }, { logger }] = await Promise.all([
+const [{ verifyDbConnection, warmDbConnection, pool }, { default: app }, { logger }] = await Promise.all([
   import("@workspace/db"),
   import("./app"),
   import("./lib/logger"),
 ]);
 
 try {
-  const dbStatus = await verifyDbConnection();
-  logger.info(dbStatus, "Database connected");
+  const dbStatus = await warmDbConnection();
+  logger.info(dbStatus, "Database warmed up");
   const { getSupabaseApiStatus } = await import("@workspace/db/supabase");
   logger.info(getSupabaseApiStatus(), "Supabase API");
 } catch (err) {
   logger.error({ err }, "Database connection failed");
   process.exit(1);
 }
+
+// Ping DB every 4 min — keeps Supabase free-tier awake and pool connections alive
+const DB_PING_INTERVAL_MS = 4 * 60 * 1000;
+setInterval(async () => {
+  try {
+    await pool.query("SELECT 1");
+    logger.debug("DB keep-alive ok");
+  } catch (err) {
+    logger.warn({ err }, "DB keep-alive failed");
+  }
+}, DB_PING_INTERVAL_MS);
 
 const rawPort = process.env["PORT"];
 

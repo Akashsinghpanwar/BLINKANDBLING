@@ -153,6 +153,16 @@ router.get("/customers", async (req, res): Promise<void> => {
   try {
     await ensureCustomerTables();
     const userId = req.session.userId || "demo";
+
+    // Auto-claim any customers created under the unauthenticated 'demo' fallback
+    // so they appear for the first authenticated jeweller who logs in.
+    if (userId !== "demo") {
+      await pool.query(
+        "update bb_customer_workspaces set jeweller_user_id = $1, updated_at = now() where jeweller_user_id = 'demo'",
+        [userId],
+      );
+    }
+
     const { rows } = await pool.query(
       "select * from bb_customer_workspaces where jeweller_user_id = $1 order by created_at desc",
       [userId],
@@ -194,6 +204,74 @@ router.post("/customers", async (req, res): Promise<void> => {
   } catch (err) {
     console.error("Customer create error:", err);
     res.status(500).json({ error: "Failed to create customer" });
+  }
+});
+
+const updateCustomerSchema = z.object({
+  projectName: z.string().max(200).optional(),
+  budget: z.string().max(120).optional(),
+  metalPreference: z.string().max(120).optional(),
+  gemstonePreference: z.string().max(120).optional(),
+  ringSize: z.string().max(40).optional(),
+  timeline: z.string().max(80).optional(),
+  stage: z.string().max(60).optional(),
+  fullName: z.string().min(1).max(200).optional(),
+  email: z.string().max(255).optional(),
+  phone: z.string().max(80).optional(),
+  status: z.string().max(40).optional(),
+});
+
+router.patch("/customers/:id", async (req, res): Promise<void> => {
+  const parsed = updateCustomerSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+    return;
+  }
+
+  const fields = parsed.data;
+  if (Object.keys(fields).length === 0) {
+    res.status(400).json({ error: "No fields provided" });
+    return;
+  }
+
+  try {
+    await ensureCustomerTables();
+    const userId = req.session.userId || "demo";
+
+    const setClauses: string[] = [];
+    const values: unknown[] = [];
+    let idx = 1;
+
+    if (fields.projectName !== undefined) { setClauses.push(`project_name = $${idx++}`); values.push(fields.projectName); }
+    if (fields.budget !== undefined) { setClauses.push(`budget = $${idx++}`); values.push(fields.budget || "Not set"); }
+    if (fields.metalPreference !== undefined) { setClauses.push(`metal_preference = $${idx++}`); values.push(fields.metalPreference || "Not set"); }
+    if (fields.gemstonePreference !== undefined) { setClauses.push(`gemstone_preference = $${idx++}`); values.push(fields.gemstonePreference || "Not set"); }
+    if (fields.ringSize !== undefined) { setClauses.push(`ring_size = $${idx++}`); values.push(fields.ringSize || "Not set"); }
+    if (fields.timeline !== undefined) { setClauses.push(`timeline = $${idx++}`); values.push(fields.timeline || "Not set"); }
+    if (fields.stage !== undefined) { setClauses.push(`stage = $${idx++}`); values.push(fields.stage); }
+    if (fields.fullName !== undefined) { setClauses.push(`full_name = $${idx++}`); values.push(fields.fullName); }
+    if (fields.email !== undefined) { setClauses.push(`email = $${idx++}`); values.push(fields.email); }
+    if (fields.phone !== undefined) { setClauses.push(`phone = $${idx++}`); values.push(fields.phone); }
+    if (fields.status !== undefined) { setClauses.push(`status = $${idx++}`); values.push(fields.status); }
+
+    setClauses.push(`updated_at = now()`);
+
+    values.push(req.params.id, userId);
+
+    const { rows } = await pool.query(
+      `update bb_customer_workspaces set ${setClauses.join(", ")} where id = $${idx++} and jeweller_user_id = $${idx} returning *`,
+      values,
+    );
+
+    if (!rows[0]) {
+      res.status(404).json({ error: "Customer workspace not found" });
+      return;
+    }
+
+    res.json({ customer: toProject(rows[0]) });
+  } catch (err) {
+    console.error("Customer update error:", err);
+    res.status(500).json({ error: "Failed to update customer" });
   }
 });
 
