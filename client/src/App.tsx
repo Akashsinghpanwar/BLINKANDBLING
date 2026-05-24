@@ -15,6 +15,7 @@ import JewellerSignup from './views/auth/JewellerSignup'
 import CustomerLogin from './views/auth/CustomerLogin'
 import CustomerSignup from './views/auth/CustomerSignup'
 
+import VirtualTryOn from './views/internal/VirtualTryOn'
 import Dashboard from './views/internal/Dashboard'
 import Customers from './views/internal/Customers'
 import CustomerProfile from './views/internal/CustomerProfile'
@@ -50,6 +51,7 @@ function InternalPage() {
     if (sub === 'vault') return <Vault />
     if (sub === 'store') return <Storefront />
     if (sub === 'settings') return <Settings />
+    if (sub === 'virtual-tryon') return <VirtualTryOn />
     return <Dashboard />
   }
 
@@ -110,6 +112,7 @@ function PortalPage() {
     if (sub === 'timeline') return access.timeline ? <CustomerTimeline /> : <LockedCustomerFeature label="Timeline" />
     if (sub === 'settings') return <CustomerSettings />
     if (sub === 'payments') return <CustomerSettings />  // legacy redirect
+    if (sub === 'virtual-tryon') return <VirtualTryOn />
     return <CustomerDashboard />
   }
 

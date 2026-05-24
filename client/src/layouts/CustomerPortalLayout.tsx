@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'wouter'
 import { useIsMobileLayout } from '../hooks/useLayoutMode'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Box, Images, LayoutDashboard, Lock, LogOut, MessageCircle, Mic2, Settings, Sparkles } from 'lucide-react'
+import { Box, Images, LayoutDashboard, Lock, LogOut, MessageCircle, Mic2, Settings, Sparkles, Wand2 } from 'lucide-react'
 import PageTransition from '../components/PageTransition'
 import BlinkBlingLogo from '../components/BlinkBlingLogo'
 import { useProjects } from '../context/ProjectContext'
@@ -18,6 +18,7 @@ const navItems = [
   { name: 'Designs', path: '/portal/magic-movement', icon: Sparkles, feature: 'designs' as const },
   { name: 'User Gallery', path: '/portal/gallery', icon: Images, feature: 'gallery' as const },
   { name: '3D Preview', path: '/portal/3d-studio', icon: Box, feature: 'cad' as const },
+  { name: 'Try On', path: '/portal/virtual-tryon', icon: Wand2, feature: 'designs' as const },
 ]
 
 const bottomNavItems = [

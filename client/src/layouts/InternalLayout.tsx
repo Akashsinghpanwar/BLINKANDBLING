@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useLocation } from 'wouter'
 import { useIsMobileLayout } from '../hooks/useLayoutMode'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Bell, LayoutDashboard, LogOut, Search, Settings, Users } from 'lucide-react'
+import { Bell, LayoutDashboard, LogOut, Search, Settings, Users, Wand2 } from 'lucide-react'
 import PageTransition from '../components/PageTransition'
 import BlinkBlingLogo from '../components/BlinkBlingLogo'
 import { logout } from '../lib/auth'
@@ -11,6 +11,7 @@ import { useUnreadMessages } from '../hooks/useUnreadMessages'
 const navItems = [
   { name: 'Overview', path: '/workspace', icon: LayoutDashboard },
   { name: 'Clients', path: '/workspace/customers', icon: Users },
+  { name: 'Try-On', path: '/workspace/virtual-tryon', icon: Wand2 },
 ]
 
 const bottomNavItems = [

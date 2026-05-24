@@ -277,6 +277,109 @@ router.post("/ai-render/edit", async (req, res): Promise<void> => {
   }
 });
 
+/* ----------------------------------------------------------
+ * Virtual Try-On: composite person photo + jewellery image
+ * ---------------------------------------------------------- */
+const tryonSchema = z.object({
+  personPhoto: z.string().min(1).max(20_000_000),
+  jewelleryImage: z.string().min(1).max(20_000_000),
+  jewelleryType: z.string().max(100).optional().default("ring"),
+});
+
+const JEWELLERY_POSITIONS: Record<string, string> = {
+  ring: "finger(s)",
+  necklace: "neck",
+  earrings: "ear(s)",
+  bracelet: "wrist",
+  pendant: "neck/chest area",
+  bangle: "wrist",
+};
+
+router.post("/ai/tryon", async (req, res): Promise<void> => {
+  const parsed = tryonSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+    return;
+  }
+
+  const { personPhoto, jewelleryImage, jewelleryType } = parsed.data;
+  const position = JEWELLERY_POSITIONS[jewelleryType] ?? "appropriate body part";
+
+  const prompt = [
+    `You are an expert photo compositor. Your task is to create a single photorealistic image of the person wearing the ${jewelleryType}.`,
+    ``,
+    `The first image supplied is the person's photo. The second image is the jewellery design.`,
+    ``,
+    `Instructions:`,
+    `- Naturally place the ${jewelleryType} on the person's ${position}`,
+    `- Keep realistic proportions, scale, and lighting — the jewellery must look worn, not copy-pasted`,
+    `- Preserve the person's facial features, skin tone, expression, and background`,
+    `- Match the lighting direction and colour temperature of the jewellery to the photo`,
+    `- The final image must look like a professional portrait photograph of someone genuinely wearing this jewellery`,
+    `- Output a single composite image only — no side-by-side, no collage, no labels`,
+  ].join("\n");
+
+  try {
+    const apiKey = process.env["OPENROUTER_API_KEY"];
+    if (!apiKey) {
+      res.status(500).json({ error: "OpenRouter API key not configured" });
+      return;
+    }
+
+    const model = getOpenRouterImageModel();
+
+    const openRouterRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+        "HTTP-Referer": "https://blinkandbling-1.onrender.com",
+        "X-Title": "Blink & Bling Virtual Try-On",
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url: personPhoto, detail: "high" } },
+            { type: "image_url", image_url: { url: jewelleryImage, detail: "high" } },
+          ],
+        }],
+      }),
+      signal: AbortSignal.timeout(300_000),
+    });
+
+    const rawText = await openRouterRes.text();
+
+    if (!openRouterRes.ok) {
+      logger.error({ status: openRouterRes.status, model, body: rawText.slice(0, 600) }, "Virtual try-on request failed");
+      res.status(502).json({ error: `Try-on generation failed (${openRouterRes.status}): ${rawText.slice(0, 300)}` });
+      return;
+    }
+
+    let data: unknown;
+    try { data = JSON.parse(rawText); } catch {
+      res.status(502).json({ error: "OpenRouter returned non-JSON response" });
+      return;
+    }
+
+    const urls = findOpenRouterImages(data);
+    const resultUrl = urls[0];
+
+    if (!resultUrl) {
+      logger.error({ model, raw: rawText.slice(0, 600) }, "Virtual try-on: no image in response");
+      res.status(502).json({ error: "AI did not return a try-on image" });
+      return;
+    }
+
+    res.json({ resultUrl });
+  } catch (error) {
+    logger.warn({ err: safeError(error) }, "Virtual try-on generation failed");
+    res.status(502).json({ error: error instanceof Error ? error.message : "Try-on generation failed" });
+  }
+});
+
 router.post("/ai/respond", async (req, res): Promise<void> => {
   const parsed = respondSchema.safeParse(req.body);
   if (!parsed.success) {
