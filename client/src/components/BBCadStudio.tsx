@@ -95,7 +95,7 @@ interface Props {
 }
 
 export default function BBCadStudio({ onOpenInViewer }: Props) {
-  const { saveCadFile, setViewerCadFile } = useProjects()
+  const { saveCadFile, setViewerCadFile, pending3DImageUrl, setPending3DImageUrl } = useProjects()
   const { add3DJob, removeJob } = useBackgroundJobs()
 
   // Subscribe to 3D jobs in the global store
@@ -153,6 +153,48 @@ export default function BBCadStudio({ onOpenInViewer }: Props) {
     }
   }, [active3DJob?.id, active3DJob?.status, active3DJob?.progress, active3DJob?.glbUrl, removeJob])
 
+  // Auto-load an image URL sent from the gallery
+  useEffect(() => {
+    if (!pending3DImageUrl) return
+    let cancelled = false
+
+    const loadAndGenerate = async () => {
+      try {
+        let blob: Blob
+        if (pending3DImageUrl.startsWith('data:')) {
+          const [header, b64] = pending3DImageUrl.split(',')
+          const mime = header.match(/:(.*?);/)?.[1] ?? 'image/png'
+          const bytes = atob(b64 ?? '')
+          const arr = new Uint8Array(bytes.length)
+          for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i)
+          blob = new Blob([arr], { type: mime })
+        } else {
+          const res = await fetch(pending3DImageUrl)
+          blob = await res.blob()
+        }
+        if (cancelled) return
+        const file = new File([blob], 'ai-design.png', { type: blob.type || 'image/png' })
+        setPending3DImageUrl(null)
+        // Set preview immediately
+        setImageFile(file)
+        setImagePreview(URL.createObjectURL(file))
+        setGenState('idle')
+        setTaskResult(null)
+        setTaskId(null)
+        setErrorMsg('')
+        // Auto-start generation with this file directly
+        await startGeneration(file)
+      } catch {
+        if (!cancelled) toast.error('Could not load gallery image for 3D generation')
+        setPending3DImageUrl(null)
+      }
+    }
+
+    void loadAndGenerate()
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending3DImageUrl])
+
   const resetImage = useCallback(() => {
     setImageFile(null)
     setImagePreview(null)
@@ -188,14 +230,13 @@ export default function BBCadStudio({ onOpenInViewer }: Props) {
     if (file) acceptImage(file)
   }, [acceptImage])
 
-  const generate = async () => {
-    if (!imageFile) return
+  const startGeneration = async (file: File) => {
     setGenState('uploading')
     setErrorMsg('')
     setTaskResult(null)
 
     try {
-      const imageData = await fileToBase64(imageFile)
+      const imageData = await fileToBase64(file)
       const res = await fetch('/api/cad/image-to-3d/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -211,15 +252,18 @@ export default function BBCadStudio({ onOpenInViewer }: Props) {
       setGenState('processing')
       toast.info('3D generation started — you can navigate away and we will notify you when done.')
 
-      // Register in global store — BackgroundJobManager handles polling from here on,
-      // even if the user navigates away from this page.
-      add3DJob(body.taskId, imageFile.name)
+      add3DJob(body.taskId, file.name)
     } catch (err: unknown) {
       const msg = cleanGenerationMessage(err instanceof Error ? err.message : 'Unknown error')
       setGenState('error')
       setErrorMsg(msg)
       toast.error(msg)
     }
+  }
+
+  const generate = async () => {
+    if (!imageFile) return
+    await startGeneration(imageFile)
   }
 
   const saveAndView = async (url: string) => {

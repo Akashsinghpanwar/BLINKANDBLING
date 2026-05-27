@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAnnotationCanvas } from '../../hooks/useAnnotationCanvas'
 import { motion } from 'framer-motion'
-import { Box, Check, Diamond, Download, Eraser, Eye, FileArchive, FolderOpen, Gem, Images, Instagram, Mail, Maximize2, MessageCircle, Minimize2, Pencil, Send, Share2, Sparkles, Trash2, Type, Upload, Watch, X } from 'lucide-react'
+import { Box, Check, Diamond, Download, Eraser, Eye, FileArchive, FolderOpen, Gem, Images, Instagram, Layers, Mail, Maximize2, MessageCircle, Minimize2, Pencil, Send, Share2, Sparkles, Trash2, Type, Upload, Watch, X } from 'lucide-react'
 import { useLocation } from 'wouter'
 import { MOOD_BOARD, photos } from '../../lib/photos'
 import { fadeUp, stagger } from '../../lib/motion'
@@ -129,6 +129,7 @@ export default function UserGallery() {
     sendImageToCadFiles,
     saveAiGeneratedImage,
     setPendingEditResult,
+    setPending3DImageUrl,
   } = useProjects()
   const folders = demoFolders.map(folder => folder.id === 'ai'
     ? {
@@ -366,6 +367,12 @@ export default function UserGallery() {
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not save to CAD files', 'error')
     }
+  }
+
+  const sendTo3DStudio = (image: GalleryTile) => {
+    setPending3DImageUrl(image.url)
+    showToast('Converting to 3D model…', 'success')
+    setLocation('/portal/3d-studio')
   }
 
   const closeMaximized = () => {
@@ -836,6 +843,7 @@ export default function UserGallery() {
                   <button type="button" title="Maximize" onClick={() => setMaximizedImage(image)}><Maximize2 size={15} /></button>
                   <button type="button" title="Send to Magic Movement" onClick={() => sendToMagicMovement(image, index)}><Send size={15} /></button>
                   <button type="button" title="Send to CAD files" onClick={() => void sendToCad(image, index)}><Box size={15} /></button>
+                  <button type="button" title="Generate 3D model" onClick={() => sendTo3DStudio(image)} style={{ color: '#a855f7' }}><Layers size={15} /></button>
                   {!image.url.startsWith('data:') && (
                     <button
                       type="button"
@@ -900,6 +908,14 @@ export default function UserGallery() {
                 {maximizedImage.label}
               </strong>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
+                  className="bb-icon-btn"
+                  onClick={() => { closeMaximized(); sendTo3DStudio(maximizedImage) }}
+                  title="Generate 3D model from this image"
+                  style={{ color: '#a855f7', borderColor: 'rgba(168,85,247,0.3)', background: 'rgba(168,85,247,0.08)' }}
+                >
+                  <Layers size={15} />
+                </button>
                 <button
                   className="bb-icon-btn"
                   onClick={() => setIsPreviewExpanded(v => !v)}
@@ -1134,6 +1150,46 @@ export default function UserGallery() {
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* ── 3D Generation quick-action bar ── */}
+              {!annotateMode && (
+                <div style={{
+                  padding: '12px 18px',
+                  borderTop: '1px solid var(--bb-line)',
+                  background: 'rgba(250,246,255,0.9)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  gap: 12, flexShrink: 0,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{
+                      width: 32, height: 32, borderRadius: 9,
+                      background: 'linear-gradient(135deg,rgba(168,85,247,0.15),rgba(236,72,153,0.10))',
+                      display: 'grid', placeItems: 'center',
+                      border: '1px solid rgba(168,85,247,0.25)',
+                    }}>
+                      <Layers size={15} style={{ color: '#a855f7' }} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--bb-ink)' }}>Convert to 3D model</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--bb-muted)' }}>AI generates a GLB mesh from this image</div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { closeMaximized(); sendTo3DStudio(maximizedImage) }}
+                    style={{
+                      minHeight: 36, padding: '8px 16px', borderRadius: 10,
+                      border: '1.5px solid rgba(168,85,247,0.4)',
+                      background: 'linear-gradient(135deg,rgba(168,85,247,0.12),rgba(236,72,153,0.08))',
+                      color: '#a855f7', fontWeight: 900, fontSize: '0.82rem',
+                      display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Layers size={14} /> Generate 3D
+                  </button>
                 </div>
               )}
 

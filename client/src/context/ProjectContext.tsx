@@ -126,6 +126,8 @@ interface ProjectContextValue {
   setPendingMagicReference: (image: GalleryImage | null) => void
   pendingEditResult: GalleryImage | null
   setPendingEditResult: (image: GalleryImage | null) => void
+  pending3DImageUrl: string | null
+  setPending3DImageUrl: (url: string | null) => void
   cadFiles: CadFile[]
   viewerCadFile: CadFile | null
   setViewerCadFile: (file: CadFile | null) => void
@@ -161,6 +163,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [tryonFolders, setTryonFolders] = useState<GalleryFolder[]>([])
   const [pendingMagicReference, setPendingMagicReference] = useState<GalleryImage | null>(null)
   const [pendingEditResult, setPendingEditResult] = useState<GalleryImage | null>(null)
+  const [pending3DImageUrl, setPending3DImageUrl] = useState<string | null>(null)
   const [cadFiles, setCadFiles] = useState<CadFile[]>([])
   const [viewerCadFile, setViewerCadFile] = useState<CadFile | null>(null)
   const aiGeneratedImages = useMemo(
@@ -507,6 +510,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       setPendingMagicReference,
       pendingEditResult,
       setPendingEditResult,
+      pending3DImageUrl,
+      setPending3DImageUrl,
       cadFiles,
       viewerCadFile,
       setViewerCadFile,
