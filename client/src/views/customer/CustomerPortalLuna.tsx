@@ -17,8 +17,6 @@ const SUGGESTIONS = [
   'Anniversary band ideas',
 ]
 
-const LUNA_AGENT_ID = 'agent_9001kf27vrfxe8ta2svmvhktjnrx'
-
 export default function CustomerPortalLuna() {
   const { showToast } = useApp()
   const { portalProject } = useProjects()
@@ -27,7 +25,7 @@ export default function CustomerPortalLuna() {
   const [draft, setDraft] = useState('')
   const [chatOpen, setChatOpen] = useState(false)
   const [lastLunaError, setLastLunaError] = useState('')
-  const [backupVoiceOpen, setBackupVoiceOpen] = useState(false)
+  const [isMicError, setIsMicError] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const conversationRef = useRef<ElevenConversation | null>(null)
   const manualEndingRef = useRef(false)
@@ -46,18 +44,6 @@ export default function CustomerPortalLuna() {
     if (reconnectTimerRef.current) window.clearTimeout(reconnectTimerRef.current)
     if (activeConversation) void activeConversation.endSession()
   }, [])
-
-  useEffect(() => {
-    if (!backupVoiceOpen) return
-    const scriptId = 'elevenlabs-convai-widget'
-    if (document.getElementById(scriptId)) return
-    const script = document.createElement('script')
-    script.id = scriptId
-    script.src = 'https://unpkg.com/@elevenlabs/convai-widget-embed'
-    script.async = true
-    script.type = 'text/javascript'
-    document.body.appendChild(script)
-  }, [backupVoiceOpen])
 
   const appendMessage = (message: Message) => {
     const content = message.content.trim()
@@ -144,16 +130,11 @@ export default function CustomerPortalLuna() {
       } catch (wsError) {
         console.error('Luna WebSocket fallback also failed', wsError)
         const isMicDenied = message.toLowerCase().includes('permission') || message.toLowerCase().includes('denied') || message.toLowerCase().includes('notallowed')
-        setLastLunaError(
-          isMicDenied
-            ? 'Microphone permission was denied. Please allow mic access and try again, or use the backup widget below.'
-            : message
-        )
-        showToast(isMicDenied ? 'Mic permission needed — opening backup' : 'Luna could not connect', 'error')
+        setIsMicError(isMicDenied)
+        setLastLunaError(isMicDenied ? 'mic' : message)
+        showToast(isMicDenied ? 'Microphone access needed' : 'Luna could not connect', 'error')
         setState('idle')
         setChatOpen(false)
-        // Auto-open backup widget so they can still talk to Luna
-        if (isMicDenied) setBackupVoiceOpen(true)
       }
     }
   }
@@ -163,6 +144,7 @@ export default function CustomerPortalLuna() {
         connectedAtRef.current = Date.now()
         setState('listening')
         setLastLunaError('')
+        setIsMicError(false)
         console.info('Luna connected', conversationId)
         showToast('Luna connected', 'success')
       },
@@ -349,13 +331,6 @@ export default function CustomerPortalLuna() {
     }
   }
 
-  const mountBackupWidget = (node: HTMLDivElement | null) => {
-    if (!node || node.querySelector('elevenlabs-convai')) return
-    const widget = document.createElement('elevenlabs-convai')
-    widget.setAttribute('agent-id', LUNA_AGENT_ID)
-    node.appendChild(widget)
-  }
-
   return (
     <div data-testid="customer-luna" style={{
       position: 'relative',
@@ -443,42 +418,93 @@ export default function CustomerPortalLuna() {
         )}
 
         {lastLunaError && (
-          <div style={{
-            maxWidth: 520,
-            padding: '10px 14px',
-            borderRadius: 14,
-            border: '1px solid rgba(207,95,145,0.22)',
-            background: 'rgba(255,255,255,0.78)',
-            color: 'var(--bb-muted)',
-            fontSize: '0.82rem',
-            lineHeight: 1.5,
-            textAlign: 'center',
-            display: 'grid',
-            gap: 10,
-          }}>
-            <span>{lastLunaError}</span>
-            <button
-              type="button"
-              className="bb-btn-secondary"
-              onClick={() => setBackupVoiceOpen(true)}
-              style={{ justifyContent: 'center', minHeight: 34, padding: '8px 14px', margin: '0 auto' }}
+          isMicError ? (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35 }}
+              style={{
+                width: 'min(520px, 92vw)',
+                borderRadius: 18,
+                border: '1px solid rgba(207,95,145,0.28)',
+                background: 'rgba(255,255,255,0.9)',
+                backdropFilter: 'blur(16px)',
+                padding: '20px 22px',
+                display: 'grid',
+                gap: 14,
+              }}
             >
-              <Mic size={14} /> Open Luna voice backup
-            </button>
-          </div>
-        )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{
+                  width: 36, height: 36, borderRadius: '50%',
+                  background: 'rgba(207,95,145,0.12)',
+                  display: 'grid', placeItems: 'center', flexShrink: 0,
+                }}>
+                  <MicOff size={17} style={{ color: 'var(--bb-rose)' }} />
+                </span>
+                <div>
+                  <strong style={{ fontSize: '0.94rem', color: 'var(--bb-ink)', display: 'block' }}>
+                    Microphone access needed
+                  </strong>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--bb-muted)' }}>
+                    Luna needs your mic to talk. Follow the steps for your device:
+                  </span>
+                </div>
+              </div>
 
-        {backupVoiceOpen && (
-          <div style={{
-            width: 'min(520px, 92vw)',
-            borderRadius: 16,
-            border: '1px solid var(--bb-line)',
-            background: 'rgba(255,255,255,0.82)',
-            padding: 12,
-            boxShadow: '0 18px 42px rgba(40,32,30,0.12)',
-          }}>
-            <div ref={mountBackupWidget} />
-          </div>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {[
+                  { label: 'Chrome / Android', steps: 'Tap the 🔒 lock icon in the address bar → Permissions → Microphone → Allow' },
+                  { label: 'Safari / iOS', steps: 'Open Settings app → Safari → Microphone → Allow for this site' },
+                  { label: 'Firefox', steps: 'Click the 🔒 lock icon → Permissions → Use the microphone → Allow' },
+                ].map(({ label, steps }) => (
+                  <div key={label} style={{
+                    padding: '10px 12px', borderRadius: 10,
+                    background: 'rgba(244,223,226,0.35)',
+                    border: '1px solid rgba(207,95,145,0.14)',
+                  }}>
+                    <strong style={{ fontSize: '0.78rem', color: 'var(--bb-rose)', display: 'block', marginBottom: 3 }}>{label}</strong>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--bb-text)', lineHeight: 1.5 }}>{steps}</span>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                className="bb-btn-primary bb-lift"
+                onClick={() => { setLastLunaError(''); setIsMicError(false); void startLiveSession() }}
+                style={{ justifyContent: 'center', padding: '11px 20px', fontSize: '0.88rem' }}
+              >
+                <Mic size={14} /> Try again
+              </button>
+            </motion.div>
+          ) : (
+            <div style={{
+              maxWidth: 480,
+              padding: '10px 16px',
+              borderRadius: 12,
+              border: '1px solid rgba(207,95,145,0.18)',
+              background: 'rgba(255,255,255,0.78)',
+              color: 'var(--bb-muted)',
+              fontSize: '0.82rem',
+              lineHeight: 1.5,
+              textAlign: 'center',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 10,
+            }}>
+              <span>{lastLunaError}</span>
+              <button
+                type="button"
+                className="bb-btn-secondary"
+                onClick={() => { setLastLunaError(''); setIsMicError(false); void startLiveSession() }}
+                style={{ justifyContent: 'center', minHeight: 34, padding: '8px 16px' }}
+              >
+                <Mic size={14} /> Try again
+              </button>
+            </div>
+          )
         )}
 
         {/* Suggestion chips */}
