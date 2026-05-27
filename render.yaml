@@ -16,28 +16,69 @@ services:
       - key: SESSION_SECRET
         generateValue: true
 
-      # Database (Neon) — add value in Render dashboard
+      # ── Database (Neon PostgreSQL) ──────────────────────────────────────────
       - key: DATABASE_URL
         sync: false
 
-      # Supabase (storage/auth keys only — DB has moved to Neon)
+      # ── Supabase (storage / file uploads) ──────────────────────────────────
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_PUBLISHABLE_KEY
         sync: false
       - key: SUPABASE_SECRET_KEY
         sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_HOST
+        sync: false
+      - key: SUPABASE_PORT
+        sync: false
+      - key: SUPABASE_DB
+        sync: false
+      - key: SUPABASE_USER
+        sync: false
+      - key: SUPABASE_PASSWORD
+        sync: false
 
-      # ElevenLabs voice AI — add values in Render dashboard
+      # ── ElevenLabs voice / Luna ─────────────────────────────────────────────
       - key: ELEVENLABS_API_KEY
         sync: false
       - key: ELEVENLABS_LUNA_AGENT_ID
         sync: false
 
-      # AI image generation — add values in Render dashboard
+      # ── AI image & video generation ─────────────────────────────────────────
       - key: OPENAI_PROVIDER
         value: openrouter
+      - key: OPENAI_MODEL
+        value: openai/gpt-5.4-image-2
       - key: OPENROUTER_API_KEY
         sync: false
       - key: OPENROUTER_MODEL
-        value: black-forest-labs/flux-1.1-pro
+        value: google/gemini-3.5-flash
+      - key: OPENROUTER_IMAGE_MODEL
+        value: google/gemini-3.1-flash-image-preview
+      - key: OPENROUTER_VIDEO_MODEL
+        value: google/veo-3.1
+
+      # ── Azure OpenAI (fallback image rendering) ─────────────────────────────
+      - key: AZURE_OPENAI_ENDPOINT
+        sync: false
+      - key: AZURE_OPENAI_RESPONSES_URL
+        sync: false
+      - key: AZURE_OPENAI_API_VERSION
+        value: 2025-04-01-preview
+      - key: AZURE_OPENAI_API_KEY
+        sync: false
+      - key: AZURE_OPENAI_IMAGE_DEPLOYMENT
+        value: gpt-image-1
+
+      # ── Meshy AI (image-to-3D) ───────────────────────────────────────────────
+      - key: MESHY_API_KEY
+        sync: false
+
+      # ── Public base URL (video frame serving, webhooks) ─────────────────────
+      # Set this to your Render service URL, e.g. https://blink-bling.onrender.com
+      - key: PUBLIC_BASE_URL
+        sync: false
