@@ -116,53 +116,46 @@ export default function CustomerPortalLuna() {
     if (!isRetry) reconnectAttemptsRef.current = 0
     setState('thinking')
 
+    // Unlock AudioContext during user gesture so browser allows audio playback later
+    try {
+      const ctx = new AudioContext()
+      await ctx.resume()
+      void ctx.close()
+    } catch { /* ignore — best effort */ }
+
     try {
       manualEndingRef.current = false
       setChatOpen(true)
-      await ensureMicrophoneReady()
+      // No pre-mic check — let ElevenLabs handle mic permission inside startSession
       const conversation = await startElevenLabsSession()
-      conversation.setVolume({ volume: 0.9 })
+      conversation.setVolume({ volume: 1.0 })
       conversationRef.current = conversation
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to start Luna'
-      console.error('Unable to start Luna', error)
+      console.error('Unable to start Luna voice', error)
       conversationRef.current = null
-      setLastLunaError(message)
-      showToast(`${message}. Trying text Luna.`, 'error')
 
+      // Fallback: WebSocket voice session (NOT textOnly — agent requires voice mode)
       try {
-        const textConversation = await startElevenLabsTextSession()
-        conversationRef.current = textConversation
-        appendMessage({
-          role: 'assistant',
-          content: `Hi ${firstName}, Luna voice could not start here, but text chat is ready for ${projectName}.`,
-          ts: Date.now(),
-        })
-        showToast('Luna text mode ready', 'success')
-      } catch (textError) {
-        console.error('Unable to start Luna text mode', textError)
-        void startSession()
+        const wsConversation = await startElevenLabsWsSession()
+        wsConversation.setVolume({ volume: 1.0 })
+        conversationRef.current = wsConversation
+        showToast('Luna connected', 'success')
+      } catch (wsError) {
+        console.error('Luna WebSocket fallback also failed', wsError)
+        const isMicDenied = message.toLowerCase().includes('permission') || message.toLowerCase().includes('denied') || message.toLowerCase().includes('notallowed')
+        setLastLunaError(
+          isMicDenied
+            ? 'Microphone permission was denied. Please allow mic access and try again, or use the backup widget below.'
+            : message
+        )
+        showToast(isMicDenied ? 'Mic permission needed — opening backup' : 'Luna could not connect', 'error')
+        setState('idle')
+        setChatOpen(false)
+        // Auto-open backup widget so they can still talk to Luna
+        if (isMicDenied) setBackupVoiceOpen(true)
       }
     }
-  }
-
-  const ensureMicrophoneReady = async () => {
-    if (!window.isSecureContext && !['localhost', '127.0.0.1'].includes(window.location.hostname)) {
-      throw new Error('Open Luna on localhost or HTTPS so the microphone can start')
-    }
-
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('Microphone access is not available in this browser')
-    }
-
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    })
-    stream.getTracks().forEach(track => track.stop())
   }
 
   const createLunaCallbacks = () => ({
@@ -182,7 +175,10 @@ export default function CustomerPortalLuna() {
         }
         console.warn('Luna disconnected', details)
         const connectedFor = Date.now() - connectedAtRef.current
-        const canRetry = connectedFor < 15000 && reconnectAttemptsRef.current < 2
+
+        // If disconnected within 2 s it's a server rejection — don't retry (it will loop)
+        // Only retry if we had a stable connection (>2 s) and haven't retried twice yet
+        const canRetry = connectedFor > 2000 && connectedFor < 30000 && reconnectAttemptsRef.current < 2
 
         if (canRetry) {
           reconnectAttemptsRef.current += 1
@@ -196,7 +192,7 @@ export default function CustomerPortalLuna() {
         }
 
         setState('idle')
-        showToast('Luna disconnected. Tap Start to reconnect.', 'error')
+        showToast('Luna disconnected. Tap to reconnect.', 'error')
       },
       onStatusChange: ({ status }: { status: string }) => {
         if (status === 'connecting' || status === 'disconnecting') setState('thinking')
@@ -250,9 +246,6 @@ export default function CustomerPortalLuna() {
           connectionType: 'webrtc',
           textOnly: false,
           useWakeLock: false,
-          overrides: {
-            conversation: { textOnly: false },
-          },
           dynamicVariables,
           connectionDelay: { default: 250 },
           ...callbacks,
@@ -277,9 +270,6 @@ export default function CustomerPortalLuna() {
         connectionType: 'websocket',
         textOnly: false,
         useWakeLock: false,
-        overrides: {
-          conversation: { textOnly: false },
-        },
         dynamicVariables,
         connectionDelay: { default: 250 },
         ...callbacks,
@@ -290,7 +280,8 @@ export default function CustomerPortalLuna() {
     }
   }
 
-  const startElevenLabsTextSession = async () => {
+  // WebSocket fallback — voice mode (textOnly: false so the agent actually speaks)
+  const startElevenLabsWsSession = async () => {
     const callbacks = createLunaCallbacks()
     const dynamicVariables = lunaDynamicVariables()
 
@@ -301,13 +292,13 @@ export default function CustomerPortalLuna() {
     const signedUrlData = (await signedUrlResponse.json().catch(() => ({}))) as { signedUrl?: unknown; error?: string }
 
     if (!signedUrlResponse.ok || typeof signedUrlData.signedUrl !== 'string' || !signedUrlData.signedUrl) {
-      throw new Error(signedUrlData.error || 'Unable to start Luna text chat')
+      throw new Error(signedUrlData.error || 'Unable to start Luna')
     }
 
     return await Conversation.startSession({
       signedUrl: signedUrlData.signedUrl,
       connectionType: 'websocket',
-      textOnly: true,
+      textOnly: false,         // must be false — agent is configured for voice
       useWakeLock: false,
       dynamicVariables,
       connectionDelay: { default: 150 },
