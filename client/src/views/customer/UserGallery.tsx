@@ -839,11 +839,29 @@ export default function UserGallery() {
                 }}
               >
                 <img src={image.url} alt={image.label} loading="lazy" style={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', display: 'block' }} />
+                {/* Always-visible 3D badge */}
+                <button
+                  type="button"
+                  title="Generate 3D model from this image"
+                  onClick={e => { e.stopPropagation(); sendTo3DStudio(image) }}
+                  style={{
+                    position: 'absolute', bottom: 36, left: 8,
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    padding: '4px 9px', borderRadius: 999,
+                    border: '1.5px solid rgba(168,85,247,0.55)',
+                    background: 'rgba(168,85,247,0.13)',
+                    backdropFilter: 'blur(8px)',
+                    color: '#a855f7', fontWeight: 900, fontSize: '0.65rem',
+                    cursor: 'pointer', letterSpacing: '0.04em',
+                    boxShadow: '0 2px 10px rgba(168,85,247,0.18)',
+                  }}
+                >
+                  <Layers size={10} /> 3D
+                </button>
                 <div className="bb-gallery-actions">
                   <button type="button" title="Maximize" onClick={() => setMaximizedImage(image)}><Maximize2 size={15} /></button>
                   <button type="button" title="Send to Magic Movement" onClick={() => sendToMagicMovement(image, index)}><Send size={15} /></button>
                   <button type="button" title="Send to CAD files" onClick={() => void sendToCad(image, index)}><Box size={15} /></button>
-                  <button type="button" title="Generate 3D model" onClick={() => sendTo3DStudio(image)} style={{ color: '#a855f7' }}><Layers size={15} /></button>
                   {!image.url.startsWith('data:') && (
                     <button
                       type="button"
