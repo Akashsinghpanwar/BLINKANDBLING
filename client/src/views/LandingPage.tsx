@@ -20,6 +20,7 @@ import {
   Phone,
 } from 'lucide-react'
 import GradientHeadline from '../components/GradientHeadline'
+import LandingTree from '../components/LandingTree'
 import BlinkBlingLogo from '../components/BlinkBlingLogo'
 import PenWriteLogo from '../components/PenWriteLogo'
 import PillarSelector from '../components/PillarSelector'
@@ -612,6 +613,150 @@ export default function LandingPage() {
               />
             </motion.div>
           </motion.div>
+        </div>
+      </section>
+
+      {/* ── AI CAD Coming-Soon Note ─────────────────────────────────────────── */}
+      <section style={{ padding: '0 clamp(24px, 5vw, 48px) 14px', position: 'relative', zIndex: 2 }}>
+        <div style={{ maxWidth: 1180, margin: '0 auto', display: 'flex', justifyContent: 'center', alignItems: 'flex-end', gap: 0 }}>
+          {/* Left tree */}
+          <div style={{ alignSelf: 'flex-end', marginRight: -18, marginBottom: -8, zIndex: 3 }}>
+            <LandingTree side="left" />
+          </div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 22, rotate: -1.5 }}
+            whileInView={{ opacity: 1, y: 0, rotate: -1.2 }}
+            whileHover={{ rotate: 0, scale: 1.018, y: -3 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.65, ease: [0.22, 0.9, 0.32, 1] }}
+            style={{
+              position: 'relative',
+              maxWidth: 640,
+              width: '100%',
+              padding: 'clamp(22px, 4vw, 34px) clamp(24px, 4vw, 40px) clamp(20px, 3.5vw, 30px)',
+              borderRadius: 4,
+              background:
+                'linear-gradient(160deg, #f5e6d0 0%, #eeddc4 30%, #e8d4b8 60%, #f0e0c8 100%)',
+              boxShadow:
+                '0 6px 28px rgba(140, 80, 50, 0.22),' +
+                '0 2px 6px rgba(140, 80, 50, 0.14),' +
+                'inset 0 1px 0 rgba(255,255,255,0.55),' +
+                'inset 0 -1px 0 rgba(120,70,30,0.12)',
+              border: '1px solid rgba(180, 120, 70, 0.28)',
+              cursor: 'default',
+              transformOrigin: 'center top',
+            }}
+          >
+            {/* Wood-grain texture overlay */}
+            <div aria-hidden style={{
+              position: 'absolute', inset: 0, borderRadius: 4, pointerEvents: 'none',
+              backgroundImage:
+                'repeating-linear-gradient(92deg, transparent, transparent 18px, rgba(120,70,30,0.025) 18px, rgba(120,70,30,0.025) 19px),' +
+                'repeating-linear-gradient(2deg, transparent, transparent 28px, rgba(160,90,40,0.02) 28px, rgba(160,90,40,0.02) 29px)',
+            }} />
+
+            {/* Pin */}
+            <div aria-hidden style={{
+              position: 'absolute', top: -13, left: '50%', transform: 'translateX(-50%)',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0,
+            }}>
+              <div style={{
+                width: 20, height: 20, borderRadius: '50%',
+                background: 'radial-gradient(circle at 38% 34%, #f093b8, #cf5f91 55%, #a03470)',
+                boxShadow: '0 3px 10px rgba(207,95,145,0.5), inset 0 1px 0 rgba(255,255,255,0.45)',
+                border: '1.5px solid rgba(180,50,100,0.3)',
+              }} />
+              <div style={{
+                width: 2, height: 10,
+                background: 'linear-gradient(180deg, rgba(120,60,90,0.7), rgba(120,60,90,0.2))',
+              }} />
+            </div>
+
+            {/* Pink accent bar */}
+            <div aria-hidden style={{
+              position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, borderRadius: '4px 0 0 4px',
+              background: 'linear-gradient(180deg, #f093b8, #cf5f91 50%, #e8a0c0)',
+            }} />
+
+            <div style={{ paddingLeft: 8 }}>
+              {/* Label */}
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 7, marginBottom: 11,
+                background: 'linear-gradient(135deg, rgba(207,95,145,0.16), rgba(207,95,145,0.08))',
+                border: '1px solid rgba(207,95,145,0.32)',
+                borderRadius: 999,
+                padding: '3px 11px 3px 8px',
+              }}>
+                <span style={{
+                  width: 7, height: 7, borderRadius: '50%',
+                  background: 'var(--bb-rose)',
+                  boxShadow: '0 0 0 3px rgba(207,95,145,0.22)',
+                  flexShrink: 0,
+                  animation: 'bb-pulse-dot 1.4s ease-in-out infinite',
+                }} />
+                <span style={{
+                  fontSize: '0.65rem', fontWeight: 900, letterSpacing: '0.16em',
+                  textTransform: 'uppercase', color: '#a03470',
+                }}>
+                  Coming Soon
+                </span>
+              </div>
+
+              {/* Heading */}
+              <p style={{
+                margin: '0 0 10px',
+                fontFamily: 'var(--app-font-display)',
+                fontSize: 'clamp(1.15rem, 2.2vw, 1.55rem)',
+                fontWeight: 500,
+                lineHeight: 1.28,
+                color: '#3a1c10',
+                letterSpacing: '-0.01em',
+              }}>
+                AI-Powered CAD — One Click,{' '}
+                <span style={{
+                  background: 'linear-gradient(110deg, #a03470, #cf5f91)',
+                  WebkitBackgroundClip: 'text',
+                  backgroundClip: 'text',
+                  color: 'transparent',
+                  fontStyle: 'italic',
+                }}>
+                  Your Jewellery in 3D.
+                </span>
+              </p>
+
+              {/* Body */}
+              <p style={{
+                margin: '0 0 16px',
+                fontSize: 'clamp(0.82rem, 1.3vw, 0.92rem)',
+                color: '#6b3820',
+                lineHeight: 1.7,
+                opacity: 0.9,
+              }}>
+                We are building something that will change the bespoke &amp; custom jewellery market forever.
+                Describe your piece — and watch a real CAD model appear in seconds. No sketches, no back-and-forth.
+                Just your vision, fully formed.
+              </p>
+
+              {/* Footer note */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                paddingTop: 13,
+                borderTop: '1px dashed rgba(180,100,60,0.28)',
+              }}>
+                <span style={{
+                  fontSize: '0.72rem', color: '#9a5030', fontStyle: 'italic', lineHeight: 1.5,
+                }}>
+                  ✦ &nbsp;Launching soon for Blink &amp; Bling studios — stay tuned.
+                </span>
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Right tree */}
+          <div style={{ alignSelf: 'flex-end', marginLeft: -18, marginBottom: -8, zIndex: 3 }}>
+            <LandingTree side="right" />
+          </div>
         </div>
       </section>
 

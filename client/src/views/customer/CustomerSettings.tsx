@@ -243,7 +243,7 @@ function PaymentModal({
 const AVATAR_KEY = 'bb-customer-avatar'
 
 export default function CustomerSettings() {
-  const { portalProject } = useProjects()
+  const { portalProject, updateProject } = useProjects()
   const { showToast } = useApp()
   const [activeTab, setActiveTab]     = useState('profile')
   const [profile, setProfile]         = useState({
@@ -257,10 +257,20 @@ export default function CustomerSettings() {
   const fileRef                       = useRef<HTMLInputElement>(null)
 
   const handleSave = async () => {
+    if (!portalProject?.id) return
     setSaving(true)
-    await new Promise(r => setTimeout(r, 600))
-    setSaving(false)
-    showToast('Profile saved', 'success')
+    try {
+      await updateProject(portalProject.id, {
+        fullName: profile.name,
+        email:    profile.email,
+        phone:    profile.phone,
+      })
+      showToast('Profile saved', 'success')
+    } catch {
+      showToast('Failed to save profile. Please try again.', 'error')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
