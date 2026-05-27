@@ -8,8 +8,7 @@
 :: ──────────────────────────────────────────────────────────────
 cd /d "%~dp0"
 
-set SUPABASE_URL=YOUR_SUPABASE_URL
-set DATABASE_URL=YOUR_DATABASE_URL
+set DATABASE_URL=YOUR_NEON_DATABASE_URL
 set PORT=5000
 set SESSION_SECRET=YOUR_SESSION_SECRET
 
