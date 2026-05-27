@@ -57,33 +57,33 @@ function upgradeToJewelryPBR(object: THREE.Object3D) {
         const sm = m as THREE.MeshStandardMaterial
         sm.metalness = metalness
         sm.roughness = roughness
-        sm.envMapIntensity = 2.4
+        sm.envMapIntensity = 1.1
         sm.needsUpdate = true
       })
     }
 
     if (r > 0.46 && r > g * 1.15 && b < 0.32 && value > 0.38) {
-      // Gold — warm tone, r dominates
-      applyMetal(0.97, 0.07)
+      // Gold — warm tone, higher roughness prevents mesh-bump mirror effect
+      applyMetal(0.90, 0.22)
     } else if (saturation < 0.13 && value > 0.42) {
-      // Silver / platinum — near-neutral, bright
-      applyMetal(0.97, 0.09)
+      // Silver / platinum
+      applyMetal(0.90, 0.25)
     } else if (saturation > 0.38 && value > 0.25) {
       // Gem — highly saturated (amethyst, sapphire, ruby, emerald …)
       child.material = new THREE.MeshPhysicalMaterial({
         color: new THREE.Color(r, g, b),
         vertexColors: !!colorAttr,
         metalness: 0,
-        roughness: 0.02,
-        transmission: 0.88,
-        ior: 1.77,          // sapphire / ruby / most faceted gems
+        roughness: 0.08,
+        transmission: 0.82,
+        ior: 1.72,
         thickness: 0.4,
-        envMapIntensity: 3.2,
+        envMapIntensity: 1.8,
         transparent: true,
       })
     } else {
       // Default jewelry metal
-      applyMetal(0.88, 0.14)
+      applyMetal(0.82, 0.30)
     }
   })
 }
@@ -157,7 +157,7 @@ function StlModel({ url }: { url: string }) {
   // STL has no color data — render as polished gold by default
   return (
     <mesh geometry={normalized} castShadow receiveShadow>
-      <meshPhysicalMaterial color="#d4a853" metalness={0.97} roughness={0.07} envMapIntensity={2.4} />
+      <meshPhysicalMaterial color="#d4a853" metalness={0.90} roughness={0.22} envMapIntensity={1.1} />
     </mesh>
   )
 }
@@ -192,7 +192,7 @@ function PlyModel({ url }: { url: string }) {
   }, [geometry])
   return (
     <mesh geometry={normalized} castShadow receiveShadow>
-      <meshPhysicalMaterial color="#d4a853" metalness={0.97} roughness={0.07} envMapIntensity={2.4} />
+      <meshPhysicalMaterial color="#d4a853" metalness={0.90} roughness={0.22} envMapIntensity={1.1} />
     </mesh>
   )
 }
@@ -268,27 +268,27 @@ function ViewerCanvas({ file }: { file: UploadedCadFile }) {
       <color attach="background" args={['#111114']} />
 
       {/* ── Jewelry studio 3-point lighting ── */}
-      {/* Key light: warm top-right, simulates overhead studio spot */}
+      {/* Key light: warm top-right */}
       <spotLight
-        position={[12, 18, 10]} angle={0.22} penumbra={0.55}
-        intensity={5.5} castShadow color="#fff8ee"
+        position={[12, 18, 10]} angle={0.22} penumbra={0.65}
+        intensity={2.8} castShadow color="#fff8ee"
         shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004}
       />
-      {/* Fill light: cool left, lifts shadows without washing out */}
+      {/* Fill light: cool left */}
       <spotLight
         position={[-10, 10, -6]} angle={0.38} penumbra={0.9}
-        intensity={2.2} color="#dceeff"
+        intensity={1.1} color="#dceeff"
       />
-      {/* Rim light: bottom-front, adds separation from background */}
+      {/* Rim light: bottom-front */}
       <spotLight
         position={[1, -5, 14]} angle={0.5} penumbra={1}
-        intensity={1.4} color="#fff4e8"
+        intensity={0.7} color="#fff4e8"
       />
-      {/* Ambient: very low so shadows stay deep */}
-      <ambientLight intensity={0.12} />
+      {/* Ambient: slightly raised so dark areas aren't pitch black */}
+      <ambientLight intensity={0.32} />
 
-      {/* Studio HDRI — drives reflections on polished metal */}
-      <Environment preset="studio" environmentIntensity={2.0} />
+      {/* Studio HDRI */}
+      <Environment preset="studio" environmentIntensity={1.0} />
 
       <Suspense fallback={null}>
         <Center>
@@ -308,11 +308,11 @@ function ViewerCanvas({ file }: { file: UploadedCadFile }) {
 
       {/* ── Post-processing ── */}
       <EffectComposer>
-        {/* Bloom: makes polished metal edges and gem facets glow */}
+        {/* Bloom: subtle glow only on the very brightest highlights */}
         <Bloom
-          intensity={0.55}
-          luminanceThreshold={0.72}
-          luminanceSmoothing={0.45}
+          intensity={0.18}
+          luminanceThreshold={0.90}
+          luminanceSmoothing={0.60}
           mipmapBlur
         />
         {/* ACES Filmic: industry-standard photorealistic tone curve */}
