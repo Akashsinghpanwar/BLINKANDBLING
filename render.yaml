@@ -16,9 +16,11 @@ services:
       - key: SESSION_SECRET
         generateValue: true
 
-      # Supabase — add values in Render dashboard
-      - key: SUPABASE_DATABASE_URL
+      # Database (Neon) — add value in Render dashboard
+      - key: DATABASE_URL
         sync: false
+
+      # Supabase (storage/auth keys only — DB has moved to Neon)
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_PUBLISHABLE_KEY

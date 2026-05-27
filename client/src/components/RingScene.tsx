@@ -75,13 +75,13 @@ export const RingScene = forwardRef<RingSceneHandle, Props>(({ result, wireframe
     return new THREE.MeshPhysicalMaterial({
       color: new THREE.Color("#FFFFFF"),
       metalness: 0,
-      roughness: 0.05,
-      reflectivity: 1.0,
+      roughness: 0.06,
+      reflectivity: 0.85,
       ior: 2.42,
-      envMapIntensity: 2.5,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.0,
-      iridescence: 0.3,
+      envMapIntensity: 1.6,
+      clearcoat: 0.85,
+      clearcoatRoughness: 0.02,
+      iridescence: 0.2,
       iridescenceIOR: 1.8,
     });
   }, []);

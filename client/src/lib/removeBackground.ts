@@ -1,15 +1,30 @@
 /**
- * Removes the white/near-white background from a jewelry sketch image.
- * Uses the Canvas API to process pixels directly — no external dependencies.
+ * Removes the background from a jewelry sketch/render image.
+ * Handles both light (white/near-white) and dark (charcoal/near-black) backgrounds
+ * by sampling corner pixels to auto-detect which type is present.
  *
  * External image URLs are routed through /api/image/proxy to bypass CORS.
  * Data URLs (base64) are used directly.
- *
- * threshold: pixels with min(R,G,B) >= this value AND near-neutral saturation
- *   fade to transparent. 240 works well for pencil-sketch jewelry.
  */
 
-function processPixels(ctx: CanvasRenderingContext2D, w: number, h: number, threshold: number): string {
+/** Sample average brightness of the 4 corners to detect bg type. */
+function detectBgBrightness(ctx: CanvasRenderingContext2D, w: number, h: number): number {
+  const corners = [[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]] as const;
+  let total = 0;
+  for (const [x, y] of corners) {
+    const px = ctx.getImageData(x, y, 1, 1).data;
+    total += (px[0]! + px[1]! + px[2]!) / 3;
+  }
+  return total / 4;
+}
+
+function processPixels(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  lightThreshold: number,
+  darkThreshold: number,
+): string {
   const imageData = ctx.getImageData(0, 0, w, h);
   const d = imageData.data;
 
@@ -19,18 +34,21 @@ function processPixels(ctx: CanvasRenderingContext2D, w: number, h: number, thre
     const b = d[i + 2]!;
     const min = Math.min(r, g, b);
     const max = Math.max(r, g, b);
-    // Only strip pixels that are both very bright AND nearly neutral (low saturation).
-    // Protects silver/grey metallic pencil shading.
-    const isNeutral = (max - min) <= 18;
-    if (min >= threshold && isNeutral) {
-      // Graduated fade — brightest pixels become fully transparent
-      d[i + 3] = Math.round(((255 - min) / (255 - threshold)) * 255);
+    // Near-neutral saturation check — protects coloured gemstones and metallic shading
+    const isNeutral = (max - min) <= 22;
+
+    // Remove near-white neutral background (light bg mode)
+    if (isNeutral && min >= lightThreshold) {
+      d[i + 3] = Math.round(((255 - min) / (255 - lightThreshold)) * 255);
+    }
+    // Remove near-black neutral background (dark bg mode)
+    else if (isNeutral && max <= darkThreshold) {
+      d[i + 3] = Math.round((max / darkThreshold) * 255);
     }
   }
 
   ctx.putImageData(imageData, 0, 0);
-  const canvas = ctx.canvas;
-  return canvas.toDataURL("image/png");
+  return ctx.canvas.toDataURL("image/png");
 }
 
 function loadImage(src: string, crossOrigin?: string): Promise<HTMLImageElement> {
@@ -43,7 +61,7 @@ function loadImage(src: string, crossOrigin?: string): Promise<HTMLImageElement>
   });
 }
 
-async function tryRemove(src: string, threshold: number, crossOrigin?: string): Promise<string> {
+async function tryRemove(src: string, lightThreshold: number, crossOrigin?: string): Promise<string> {
   const img = await loadImage(src, crossOrigin);
   const canvas = document.createElement("canvas");
   canvas.width = img.naturalWidth;
@@ -51,7 +69,16 @@ async function tryRemove(src: string, threshold: number, crossOrigin?: string): 
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("No canvas context");
   ctx.drawImage(img, 0, 0);
-  return processPixels(ctx, canvas.width, canvas.height, threshold);
+
+  // Auto-detect background: if corners avg < 100 it's a dark bg, otherwise light
+  const avgBrightness = detectBgBrightness(ctx, canvas.width, canvas.height);
+  const isDark = avgBrightness < 100;
+
+  // For light bg: strip bright neutrals. For dark bg: strip dark neutrals.
+  const darkThreshold = isDark ? Math.round(avgBrightness * 1.4) : 0;
+  const lightThr = isDark ? 255 : lightThreshold; // disable light removal for dark images
+
+  return processPixels(ctx, canvas.width, canvas.height, lightThr, darkThreshold);
 }
 
 export async function removeWhiteBackground(

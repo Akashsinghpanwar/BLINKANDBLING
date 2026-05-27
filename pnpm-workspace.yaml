@@ -39,6 +39,7 @@ onlyBuiltDependencies:
 
 overrides:
   esbuild: 0.27.3
+  livekit-client: 2.16.0
   esbuild>@esbuild/aix-ppc64: '-'
   esbuild>@esbuild/android-arm: '-'
   esbuild>@esbuild/android-arm64: '-'

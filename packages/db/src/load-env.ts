@@ -15,7 +15,7 @@ function envCandidates(): string[] {
 
 export function loadAppEnv(): string | null {
   if (loaded) {
-    return process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL || null;
+    return process.env.DATABASE_URL || process.env.SUPABASE_DATABASE_URL || null;
   }
 
   for (const envPath of envCandidates()) {
@@ -33,14 +33,17 @@ export function loadAppEnv(): string | null {
 export function getDatabaseUrl(): string {
   loadAppEnv();
 
+  // Prefer DATABASE_URL (Neon/standard) over the legacy SUPABASE_DATABASE_URL.
+  // SUPABASE_DATABASE_URL is kept last so old envs still work, but it no longer
+  // takes priority — preventing stale Supabase connections after migration.
   const connectionString =
-    process.env.SUPABASE_DATABASE_URL ||
     process.env.DATABASE_URL ||
-    process.env.LOCAL_DATABASE_URL;
+    process.env.LOCAL_DATABASE_URL ||
+    process.env.SUPABASE_DATABASE_URL;
 
   if (!connectionString) {
     throw new Error(
-      "SUPABASE_DATABASE_URL or DATABASE_URL must be set. Add them to app/.env (Supabase → Project Settings → Database → Connection string, session pooler).",
+      "DATABASE_URL must be set. Add it to app/.env (e.g. your Neon or Postgres connection string).",
     );
   }
 

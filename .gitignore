@@ -19,6 +19,7 @@ credentials.json
 *.pem
 *.key
 .credentials
+.public-base-url
 
 # Logs
 *.log

@@ -1,6 +1,9 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { z } from "zod";
+import { pool } from "@workspace/db";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -286,6 +289,70 @@ const tryonSchema = z.object({
   jewelleryType: z.string().max(100).optional().default("ring"),
 });
 
+/**
+ * Step 1 of 2 — ask a fast vision model to describe the jewellery in
+ * forensic detail.  The returned string is embedded as a text anchor
+ * in the compositing prompt so the generation model cannot drift to a
+ * generic piece.
+ */
+async function describeJewellery(imageUrl: string, apiKey: string): Promise<string> {
+  try {
+    const visionModel = process.env["OPENROUTER_VISION_MODEL"] || "google/gemini-2.0-flash-001";
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+        "HTTP-Referer": "https://blinkandbling-1.onrender.com",
+        "X-Title": "Blink & Bling Jewellery Vision",
+      },
+      body: JSON.stringify({
+        model: visionModel,
+        max_tokens: 700,
+        messages: [{
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: [
+                "You are a master jewellery appraiser. Study this image and describe the piece in forensic detail so an AI can reproduce it exactly.",
+                "Cover every observable physical attribute — do NOT use subjective words like 'elegant' or 'beautiful'.",
+                "",
+                "Format your response as a compact list covering:",
+                "METAL: color (yellow gold / white gold / rose gold / silver / platinum / etc), finish (high-polish / matte / brushed / oxidised)",
+                "STONES: for each distinct stone — shape (round brilliant / oval / pear / emerald cut / marquise / cushion / princess / heart / baguette / cabochon), color, approximate count, arrangement",
+                "SETTING: prong (how many) / bezel / pave / channel / tension / flush / other",
+                "STRUCTURE: band width & profile / chain link style / earring back type / pendant bail shape — whichever applies",
+                "MOTIFS: any engravings, filigree, milgrain, geometric pattern, floral element, symbol, or text",
+                "SILHOUETTE: overall outline, dimensions, and proportions",
+                "Be exhaustive and precise.",
+              ].join("\n"),
+            },
+            { type: "image_url", image_url: { url: imageUrl, detail: "high" } },
+          ],
+        }],
+      }),
+      signal: AbortSignal.timeout(25_000),
+    });
+
+    if (!res.ok) return "";
+    const data = await res.json().catch(() => null) as { choices?: Array<{ message?: { content?: string } }> } | null;
+    return (data?.choices?.[0]?.message?.content ?? "").trim();
+  } catch {
+    return ""; // non-fatal — compositing still runs without description
+  }
+}
+
+const tryonVideoSchema = z.object({
+  tryonImage: z.string().min(1).max(30_000_000),
+  jewelleryType: z.string().max(100).optional().default("jewellery"),
+  motionPrompt: z.string().max(1000).optional().default(""),
+});
+
+const tryonFrames = new Map<string, { mimeType: string; buffer: Buffer; expiresAt: number }>();
+const TRYON_FRAME_TTL_MS = 1000 * 60 * 20;
+let tryonFrameTableReady: Promise<void> | null = null;
+
 const JEWELLERY_POSITIONS: Record<string, string> = {
   ring: "finger(s)",
   necklace: "neck",
@@ -294,6 +361,157 @@ const JEWELLERY_POSITIONS: Record<string, string> = {
   pendant: "neck/chest area",
   bangle: "wrist",
 };
+
+router.get("/ai/tryon/frame/:id", (req, res): void => {
+  void (async () => {
+    const frame = tryonFrames.get(req.params.id);
+    if (frame && frame.expiresAt >= Date.now()) {
+      res.setHeader("Content-Type", frame.mimeType);
+      res.setHeader("Cache-Control", "public, max-age=600");
+      res.send(frame.buffer);
+      return;
+    }
+    if (frame) tryonFrames.delete(req.params.id);
+
+    await ensureTryonFrameTable();
+    const { rows } = await pool.query(
+      `SELECT mime_type, data_url FROM bb_tryon_frames WHERE id = $1 AND expires_at > now()`,
+      [req.params.id],
+    );
+    const row = rows[0] as { mime_type?: string; data_url?: string } | undefined;
+    const match = row?.data_url?.match(/^data:([^;]+);base64,(.+)$/);
+    if (!row || !match) {
+      res.status(404).json({ error: "Try-on frame expired" });
+      return;
+    }
+
+    res.setHeader("Content-Type", row.mime_type || match[1] || "image/png");
+    res.setHeader("Cache-Control", "public, max-age=600");
+    res.send(Buffer.from(match[2] || "", "base64"));
+  })().catch((error: unknown) => {
+    logger.warn({ err: safeError(error) }, "Try-on frame fetch failed");
+    res.status(500).json({ error: "Try-on frame fetch failed" });
+  });
+});
+
+async function ensureTryonFrameTable() {
+  if (!tryonFrameTableReady) {
+    tryonFrameTableReady = (async () => {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS bb_tryon_frames (
+          id VARCHAR(120) PRIMARY KEY,
+          data_url TEXT NOT NULL,
+          mime_type VARCHAR(80) NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL,
+          created_at TIMESTAMPTZ DEFAULT now()
+        )
+      `);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_bb_tryon_frames_expires ON bb_tryon_frames(expires_at)`);
+    })().catch((error: unknown) => {
+      tryonFrameTableReady = null;
+      throw error;
+    });
+  }
+  return tryonFrameTableReady;
+}
+
+function pruneTryonFrames() {
+  const now = Date.now();
+  for (const [id, frame] of tryonFrames.entries()) {
+    if (frame.expiresAt < now) tryonFrames.delete(id);
+  }
+}
+
+function getPublicRequestOrigin(req: { protocol: string; get(name: string): string | undefined }) {
+  const runtimeFile = process.env["PUBLIC_BASE_URL_FILE"] || path.resolve(process.cwd(), ".public-base-url");
+  const runtimeUrl = existsSync(runtimeFile) ? readFileSync(runtimeFile, "utf8").trim() : "";
+  const configured = runtimeUrl || process.env["PUBLIC_BASE_URL"] || process.env["APP_PUBLIC_URL"];
+  if (configured) return configured.replace(/\/+$/, "");
+
+  const host = req.get("host") || "";
+  if (!host || /(^localhost(?::|$)|^127\.|^0\.0\.0\.0|^\[?::1\]?)/i.test(host)) return null;
+  return `${req.protocol}://${host}`;
+}
+
+async function createPublicFrameUrl(req: { protocol: string; get(name: string): string | undefined }, image: string) {
+  if (/^https:\/\//i.test(image) && !/localhost|127\.|0\.0\.0\.0/i.test(image)) return image;
+
+  const match = image.match(/^data:(image\/(?:png|jpeg|jpg));base64,(.+)$/i);
+  if (!match) {
+    throw new Error("Video first frame must be a JPEG or PNG image.");
+  }
+
+  const origin = getPublicRequestOrigin(req);
+  if (!origin || !origin.startsWith("https://")) {
+    throw new Error("Video generation needs a public HTTPS app URL. Use the deployed app or set PUBLIC_BASE_URL to an HTTPS tunnel.");
+  }
+
+  pruneTryonFrames();
+  const id = randomUUID();
+  const mimeType = match[1]?.toLowerCase() === "image/jpg" ? "image/jpeg" : match[1]!;
+  const dataUrl = `data:${mimeType};base64,${match[2]!}`;
+  tryonFrames.set(id, {
+    mimeType,
+    buffer: Buffer.from(match[2]!, "base64"),
+    expiresAt: Date.now() + TRYON_FRAME_TTL_MS,
+  });
+
+  await ensureTryonFrameTable();
+  await pool.query(`DELETE FROM bb_tryon_frames WHERE expires_at <= now()`);
+  await pool.query(
+    `INSERT INTO bb_tryon_frames (id, data_url, mime_type, expires_at)
+     VALUES ($1, $2, $3, now() + interval '20 minutes')
+     ON CONFLICT (id) DO UPDATE SET data_url = EXCLUDED.data_url, mime_type = EXCLUDED.mime_type, expires_at = EXCLUDED.expires_at`,
+    [id, dataUrl, mimeType],
+  );
+
+  return `${origin}/api/ai/tryon/frame/${id}`;
+}
+
+async function waitForOpenRouterVideo(pollingUrl: string, apiKey: string) {
+  const statusUrl = new URL(pollingUrl, "https://openrouter.ai").toString();
+  for (let attempt = 0; attempt < 28; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, attempt === 0 ? 7000 : 12000));
+
+    const statusResponse = await fetch(statusUrl, {
+      headers: { "Authorization": `Bearer ${apiKey}` },
+    });
+    const statusText = await statusResponse.text();
+
+    if (!statusResponse.ok) {
+      throw new Error(`Video status failed (${statusResponse.status}): ${statusText.slice(0, 240)}`);
+    }
+
+    const status = JSON.parse(statusText) as {
+      status?: string;
+      error?: string | { message?: string };
+      unsigned_urls?: string[];
+    };
+
+    if (status.status === "failed") {
+      const message = typeof status.error === "string" ? status.error : status.error?.message;
+      throw new Error(message || "OpenRouter video generation failed");
+    }
+
+    if (status.status !== "completed") continue;
+
+    const url = status.unsigned_urls?.[0];
+    if (!url) throw new Error("Video generation completed without a download URL");
+
+    const videoResponse = await fetch(url, {
+      headers: { "Authorization": `Bearer ${apiKey}` },
+    });
+    if (!videoResponse.ok) {
+      throw new Error(`Video download failed (${videoResponse.status})`);
+    }
+
+    const mimeType = videoResponse.headers.get("content-type")?.split(";")[0] || "video/mp4";
+    const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
+    return `data:${mimeType};base64,${videoBuffer.toString("base64")}`;
+  }
+
+  throw new Error("Video generation is still running. Please try again in a moment.");
+}
 
 router.post("/ai/tryon", async (req, res): Promise<void> => {
   const parsed = tryonSchema.safeParse(req.body);
@@ -305,26 +523,40 @@ router.post("/ai/tryon", async (req, res): Promise<void> => {
   const { personPhoto, jewelleryImage, jewelleryType } = parsed.data;
   const position = JEWELLERY_POSITIONS[jewelleryType] ?? "appropriate body part";
 
-  const prompt = [
-    `You are an expert photo compositor. Your task is to create a single photorealistic image of the person wearing the ${jewelleryType}.`,
-    ``,
-    `The first image supplied is the person's photo. The second image is the jewellery design.`,
-    ``,
-    `Instructions:`,
-    `- Naturally place the ${jewelleryType} on the person's ${position}`,
-    `- Keep realistic proportions, scale, and lighting — the jewellery must look worn, not copy-pasted`,
-    `- Preserve the person's facial features, skin tone, expression, and background`,
-    `- Match the lighting direction and colour temperature of the jewellery to the photo`,
-    `- The final image must look like a professional portrait photograph of someone genuinely wearing this jewellery`,
-    `- Output a single composite image only — no side-by-side, no collage, no labels`,
-  ].join("\n");
-
   try {
     const apiKey = process.env["OPENROUTER_API_KEY"];
     if (!apiKey) {
       res.status(500).json({ error: "OpenRouter API key not configured" });
       return;
     }
+
+    // ── Step 1: get a forensic text description of the jewellery ──────────────
+    // Running in parallel is not possible here because the description is needed
+    // before building the compositing prompt, but the call is fast (<2 s).
+    const jewelleryDescription = await describeJewellery(jewelleryImage, apiKey);
+    logger.info({ jewelleryType, descriptionLength: jewelleryDescription.length }, "Jewellery description complete");
+
+    // ── Step 2: build the compositing prompt with description locked in ───────
+    const descriptionAnchor = jewelleryDescription
+      ? [
+          `JEWELLERY DESCRIPTION (extracted from the reference image — reproduce this EXACTLY):`,
+          jewelleryDescription,
+        ].join("\n")
+      : `JEWELLERY: the ${jewelleryType} shown in the reference image`;
+
+    const compositingPrompt = [
+      `TASK: You are a photorealistic image compositor. Place the jewellery from the JEWELLERY REFERENCE IMAGE onto the PERSON PHOTO. Output one seamless portrait photograph.`,
+      ``,
+      descriptionAnchor,
+      ``,
+      `ABSOLUTE RULES — failure to follow any of these invalidates the output:`,
+      `1. The jewellery in the output must be IDENTICAL to the reference image. Same metal color, same stones, same stone shapes, same stone count, same setting, same silhouette, same size ratios, same motifs and engravings. Zero creative deviation.`,
+      `2. Do NOT simplify, replace, or redesign the jewellery. If the reference is a complex multi-stone pavé ring, output that exact complex multi-stone pavé ring — not a plain band.`,
+      `3. Do NOT substitute the piece with a generic or stock jewellery shape.`,
+      `4. Place the ${jewelleryType} naturally on the person's ${position}. Adjust only: scale, perspective angle, shadow, and specular highlights so it looks genuinely worn.`,
+      `5. Leave the person's face, skin tone, expression, hair, clothing, and background completely unchanged.`,
+      `6. Output a single composite image. No side-by-side panels, no labels, no watermarks, no collage.`,
+    ].join("\n");
 
     const model = getOpenRouterImageModel();
 
@@ -338,12 +570,20 @@ router.post("/ai/tryon", async (req, res): Promise<void> => {
       },
       body: JSON.stringify({
         model,
+        modalities: ["image", "text"],
+        image_config: {
+          aspect_ratio: "3:4",
+          image_size: "1K",
+        },
         messages: [{
           role: "user",
           content: [
-            { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: personPhoto, detail: "high" } },
+            // Jewellery image FIRST — generation models weight earlier tokens more heavily
+            { type: "text",      text: "JEWELLERY REFERENCE IMAGE (copy this piece exactly):" },
             { type: "image_url", image_url: { url: jewelleryImage, detail: "high" } },
+            { type: "text",      text: "\nPERSON PHOTO (place the jewellery above on this person):" },
+            { type: "image_url", image_url: { url: personPhoto,   detail: "high" } },
+            { type: "text",      text: "\n" + compositingPrompt },
           ],
         }],
       }),
@@ -377,6 +617,249 @@ router.post("/ai/tryon", async (req, res): Promise<void> => {
   } catch (error) {
     logger.warn({ err: safeError(error) }, "Virtual try-on generation failed");
     res.status(502).json({ error: error instanceof Error ? error.message : "Try-on generation failed" });
+  }
+});
+
+router.post("/ai/tryon/video", async (req, res): Promise<void> => {
+  const parsed = tryonVideoSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+    return;
+  }
+
+  const apiKey = process.env["OPENROUTER_API_KEY"];
+  if (!apiKey) {
+    res.status(501).json({ error: "OpenRouter API key is not configured." });
+    return;
+  }
+
+  const { tryonImage, jewelleryType, motionPrompt } = parsed.data;
+  const model = process.env["OPENROUTER_VIDEO_MODEL"] || "google/veo-3.1";
+  let firstFrameUrl: string;
+  try {
+    firstFrameUrl = await createPublicFrameUrl(req, tryonImage);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Invalid video first frame" });
+    return;
+  }
+
+  const prompt = [
+    `Create an elegant 8-second virtual jewellery try-on video from this starting image.`,
+    `The person is wearing ${jewelleryType}. Preserve the person's identity, face, skin tone, body shape, outfit, and the exact jewellery design.`,
+    `Motion: ${motionPrompt || "subtle camera push-in, natural head or hand movement, soft jewellery sparkle, premium studio lighting"}.`,
+    `The jewellery must stay locked to the correct body part with realistic scale and reflections. No text, no split screen, no extra jewellery, no distorted hands or face.`,
+  ].join("\n");
+
+  try {
+    const response = await fetch("https://openrouter.ai/api/v1/videos", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://blinkandbling-1.onrender.com",
+        "X-Title": "Blink & Bling Virtual Try-On",
+      },
+      body: JSON.stringify({
+        model,
+        prompt,
+        duration: 8,
+        resolution: "720p",
+        aspect_ratio: "9:16",
+        generate_audio: false,
+        frame_images: [
+          {
+            type: "image_url",
+            image_url: { url: firstFrameUrl },
+            frame_type: "first_frame",
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(120_000),
+    });
+
+    const rawText = await response.text();
+    if (!response.ok) {
+      logger.error({ status: response.status, model, body: rawText.slice(0, 600) }, "Virtual try-on video request failed");
+      res.status(502).json({ error: `Video generation failed (${response.status}): ${rawText.slice(0, 260)}` });
+      return;
+    }
+
+    const job = JSON.parse(rawText) as { polling_url?: string };
+    if (!job.polling_url) {
+      res.status(502).json({ error: "OpenRouter video generation did not return a polling URL" });
+      return;
+    }
+
+    const videoUrl = await waitForOpenRouterVideo(job.polling_url, apiKey);
+    res.json({ videoUrl });
+  } catch (error) {
+    logger.warn({ err: safeError(error) }, "Virtual try-on video generation failed");
+    res.status(502).json({ error: error instanceof Error ? error.message : "Try-on video generation failed" });
+  }
+});
+
+/* ----------------------------------------------------------
+ * Virtual Try-On: frame-by-frame motion sequence
+ * ---------------------------------------------------------- */
+const motionSequenceSchema = z.object({
+  tryonImage: z.string().min(1).max(30_000_000),
+  jewelleryImage: z.string().min(1).max(20_000_000),
+  jewelleryType: z.string().max(100).optional().default("necklace"),
+});
+
+const MOTION_FRAMES: ReadonlyArray<{ readonly label: string; readonly prompt: string }> = [
+  {
+    label: "3/4 turn",
+    prompt:
+      "Model makes a graceful 3/4 turn — left shoulder slightly forward, chin gently tilted, jewellery in clear view. Elegant fashion editorial stance.",
+  },
+  {
+    label: "Hand detail",
+    prompt:
+      "Model's right hand rises naturally toward the jewellery, fingertips lightly touching or framing it. Intimate detail pose, editorial style.",
+  },
+  {
+    label: "Presenting",
+    prompt:
+      "Model presents the jewellery with quiet confidence — upper body composition, hands gently framing the piece. Clean luxury editorial shot.",
+  },
+  {
+    label: "Close fashion",
+    prompt:
+      "Tighter editorial crop: face and jewellery filling the frame. Jewellery in crisp focus with soft background bokeh, fashion magazine composition.",
+  },
+  {
+    label: "Hero shot",
+    prompt:
+      "Final hero editorial: model looking directly into camera, jewellery perfectly positioned as centrepiece. Confident, polished, premium fashion.",
+  },
+] as const;
+
+async function generateMotionFrame(
+  tryonImageUrl: string,
+  jewelleryImageUrl: string,
+  jewelleryType: string,
+  jewelleryDescription: string,
+  apiKey: string,
+  motion: { label: string; prompt: string },
+): Promise<string> {
+  const descriptionAnchor = jewelleryDescription
+    ? `JEWELLERY DESCRIPTION (must be reproduced exactly in every frame):\n${jewelleryDescription}`
+    : `JEWELLERY: the ${jewelleryType} shown in the reference images`;
+
+  const compositingPrompt = [
+    `TASK: Generate one frame of a photorealistic fashion editorial sequence.`,
+    ``,
+    `POSE / MOTION FOR THIS FRAME:`,
+    motion.prompt,
+    ``,
+    descriptionAnchor,
+    ``,
+    `ABSOLUTE RULES — follow every one or the frame is invalid:`,
+    `1. Same person — identical face, skin tone, hair, body proportions as the REFERENCE FRAME.`,
+    `2. Same ${jewelleryType} — identical metal, stones, silhouette, and motifs as described above. Zero creative deviation.`,
+    `3. Same outfit and studio environment as the reference frame.`,
+    `4. Change only the pose and camera framing as described above.`,
+    `5. Photorealistic portrait photography, premium fashion editorial quality.`,
+    `6. No text, no watermarks, no split screen, no collage, no extra jewellery.`,
+  ].join("\n");
+
+  const model = getOpenRouterImageModel();
+
+  const openRouterRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+      "HTTP-Referer": "https://blinkandbling-1.onrender.com",
+      "X-Title": "Blink & Bling Try-On Motion",
+    },
+    body: JSON.stringify({
+      model,
+      modalities: ["image", "text"],
+      image_config: {
+        aspect_ratio: "3:4",
+        image_size: "1K",
+      },
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text",      text: "JEWELLERY REFERENCE (maintain this exact piece in every frame):" },
+          { type: "image_url", image_url: { url: jewelleryImageUrl, detail: "high" } },
+          { type: "text",      text: "\nREFERENCE FRAME (match this person, outfit, and jewellery exactly):" },
+          { type: "image_url", image_url: { url: tryonImageUrl, detail: "high" } },
+          { type: "text",      text: "\n" + compositingPrompt },
+        ],
+      }],
+    }),
+    signal: AbortSignal.timeout(300_000),
+  });
+
+  const rawText = await openRouterRes.text();
+  if (!openRouterRes.ok) {
+    throw new Error(`Motion frame "${motion.label}" failed (${openRouterRes.status}): ${rawText.slice(0, 200)}`);
+  }
+
+  let data: unknown;
+  try { data = JSON.parse(rawText); } catch {
+    throw new Error(`OpenRouter returned non-JSON for motion frame "${motion.label}"`);
+  }
+
+  const urls = findOpenRouterImages(data);
+  const url = urls[0];
+  if (!url) throw new Error(`No image in response for motion frame "${motion.label}"`);
+  return url;
+}
+
+router.post("/ai/tryon/frames", async (req, res): Promise<void> => {
+  const parsed = motionSequenceSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input", details: parsed.error.flatten() });
+    return;
+  }
+
+  const { tryonImage, jewelleryImage, jewelleryType } = parsed.data;
+  const apiKey = process.env["OPENROUTER_API_KEY"];
+  if (!apiKey) {
+    res.status(500).json({ error: "OpenRouter API key not configured" });
+    return;
+  }
+
+  try {
+    // Step 1: forensic jewellery description for cross-frame consistency
+    const jewelleryDescription = await describeJewellery(jewelleryImage, apiKey);
+    logger.info(
+      { jewelleryType, descriptionLength: jewelleryDescription.length },
+      "Jewellery described for motion sequence",
+    );
+
+    // Step 2: generate all 5 motion frames in parallel (frame 1 = tryonImage already exists)
+    const motionResults = await Promise.allSettled(
+      MOTION_FRAMES.map(motion =>
+        generateMotionFrame(tryonImage, jewelleryImage, jewelleryType, jewelleryDescription, apiKey, motion),
+      ),
+    );
+
+    const motionFrames = motionResults.map((r, i) => ({
+      url: r.status === "fulfilled" ? r.value : tryonImage,
+      label: MOTION_FRAMES[i]?.label ?? `Frame ${i + 2}`,
+      failed: r.status === "rejected",
+    }));
+
+    const failedCount = motionFrames.filter(f => f.failed).length;
+    if (failedCount > 0) {
+      logger.warn({ failedCount }, "Some motion frames failed — falling back to try-on base");
+    }
+
+    res.json({
+      frames: [
+        { url: tryonImage, label: "Try-on", failed: false },
+        ...motionFrames,
+      ],
+    });
+  } catch (error) {
+    logger.warn({ err: safeError(error) }, "Motion sequence generation failed");
+    res.status(502).json({ error: error instanceof Error ? error.message : "Motion sequence generation failed" });
   }
 });
 
@@ -838,6 +1321,7 @@ async function callAzureResponses(body: unknown) {
       "api_version": "preview",
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(180_000),
   });
 
   if (!response.ok) {
@@ -855,8 +1339,7 @@ function getOpenAIModel() {
 
 function getOpenRouterImageModel() {
   return process.env["OPENROUTER_IMAGE_MODEL"]
-    || process.env["OPENROUTER_MODEL"]
-    || "openai/gpt-5.4-image-2";
+    || "google/gemini-3.1-flash-image-preview";
 }
 
 function findImage(value: unknown): string | null {

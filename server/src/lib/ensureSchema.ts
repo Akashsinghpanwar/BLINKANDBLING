@@ -76,6 +76,7 @@ export async function ensureSchema(): Promise<void> {
       user_id    VARCHAR(120),
       project_id VARCHAR(120),
       name       VARCHAR(500) NOT NULL,
+      source     VARCHAR(40)  NOT NULL DEFAULT 'ai',
       prompt     TEXT,
       created_at TIMESTAMPTZ  DEFAULT now(),
       updated_at TIMESTAMPTZ  DEFAULT now()

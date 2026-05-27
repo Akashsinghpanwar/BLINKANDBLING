@@ -143,6 +143,169 @@ router.post("/cad/files", async (req, res): Promise<void> => {
   }
 });
 
+/* Image to 3D generation */
+
+const MESHY_BASE = "https://api.meshy.ai/openapi/v1";
+
+function meshyHeaders() {
+  const key = process.env.MESHY_API_KEY;
+  if (!key) throw new Error("MESHY_API_KEY not set");
+  return { "Content-Type": "application/json", Authorization: `Bearer ${key}` };
+}
+
+async function readJson<T>(response: Response): Promise<T | null> {
+  try {
+    return await response.json() as T;
+  } catch {
+    return null;
+  }
+}
+
+function publicGenerationError(detail?: string) {
+  const message = String(detail || "").trim();
+  const lower = message.toLowerCase();
+
+  if (lower.includes("api key") || lower.includes("authorization") || lower.includes("meshy_api_key")) {
+    return "3D generation is not configured correctly. Check the server API key and try again.";
+  }
+
+  if (lower.includes("charmap") || lower.includes("codec") || lower.includes("\\u2714")) {
+    return "The generator returned an encoding error while processing the image. Please retry with a simpler JPG or PNG.";
+  }
+
+  if (lower.includes("content") || lower.includes("policy")) {
+    return "This image could not be processed. Try a clearer product-only jewellery image.";
+  }
+
+  if (message.length > 0 && message.length <= 180) {
+    return message.replace(/Meshy AI|Meshy/gi, "the 3D generator");
+  }
+
+  return "The 3D model could not be generated from this image. Try a clearer, well-lit product photo.";
+}
+
+router.post("/cad/image-to-3d/start", async (req, res): Promise<void> => {
+  const { imageData } = req.body as { imageData?: string };
+
+  if (!imageData) {
+    res.status(400).json({ error: "imageData (base64) is required" });
+    return;
+  }
+
+  try {
+    const imageUrl = imageData.startsWith("data:")
+      ? imageData
+      : `data:image/png;base64,${imageData}`;
+
+    const response = await fetch(`${MESHY_BASE}/image-to-3d`, {
+      method: "POST",
+      headers: meshyHeaders(),
+      body: JSON.stringify({
+        image_url: imageUrl,
+        enable_pbr: true,
+        should_texture: true,
+        target_formats: ["glb"],
+      }),
+    });
+
+    const body = await readJson<{ result?: string; message?: string }>(response);
+    if (!response.ok) {
+      console.error("Meshy generate error:", body);
+      res.status(502).json({ error: publicGenerationError(body?.message) });
+      return;
+    }
+
+    if (!body?.result) {
+      console.error("Meshy generate missing task id:", body);
+      res.status(502).json({ error: "The 3D generator did not return a task id. Please try again." });
+      return;
+    }
+
+    res.json({ taskId: body.result });
+  } catch (err) {
+    console.error("image-to-3d start error:", err);
+    const message = err instanceof Error ? err.message : "";
+    res.status(503).json({ error: publicGenerationError(message) });
+  }
+});
+
+router.get("/cad/image-to-3d/status/:taskId", async (req, res): Promise<void> => {
+  try {
+    const response = await fetch(
+      `${MESHY_BASE}/image-to-3d/${req.params.taskId}`,
+      { headers: meshyHeaders() },
+    );
+    const body = await readJson<{
+      status?: string;
+      progress?: number;
+      model_urls?: { glb?: string; fbx?: string; obj?: string };
+      task_error?: { message?: string };
+    }>(response);
+
+    if (!response.ok) {
+      res.status(502).json({ error: "Could not fetch the model status. Please try again." });
+      return;
+    }
+
+    if (!body) {
+      res.status(502).json({ error: "The 3D generator returned an unreadable status response." });
+      return;
+    }
+
+    if (body.task_error?.message) {
+      body.task_error.message = publicGenerationError(body.task_error.message);
+    }
+
+    // Rewrite the CDN URL to a proxied route so the browser does not hit CORS.
+    if (body.model_urls?.glb) {
+      body.model_urls.glb = `/api/cad/image-to-3d/result/${req.params.taskId}`;
+    }
+
+    res.json(body);
+  } catch (err) {
+    console.error("image-to-3d status error:", err);
+    const message = err instanceof Error ? err.message : "";
+    res.status(503).json({ error: publicGenerationError(message) });
+  }
+});
+
+router.get("/cad/image-to-3d/result/:taskId", async (req, res): Promise<void> => {
+  try {
+    const statusResp = await fetch(
+      `${MESHY_BASE}/image-to-3d/${req.params.taskId}`,
+      { headers: meshyHeaders() },
+    );
+    if (!statusResp.ok) {
+      res.status(statusResp.status).json({ error: "Task not found" });
+      return;
+    }
+    const task = await statusResp.json() as {
+      status?: string;
+      model_urls?: { glb?: string };
+    };
+    if (task.status !== "SUCCEEDED" || !task.model_urls?.glb) {
+      res.status(400).json({ error: "Model not ready yet" });
+      return;
+    }
+
+    const glbResp = await fetch(task.model_urls.glb);
+    if (!glbResp.ok) {
+      res.status(502).json({ error: "Could not download the generated model." });
+      return;
+    }
+    res.setHeader("Content-Type", "model/gltf-binary");
+    res.setHeader("Content-Disposition", `attachment; filename="${req.params.taskId}.glb"`);
+    const buffer = await glbResp.arrayBuffer();
+    res.end(Buffer.from(buffer));
+  } catch (err) {
+    console.error("image-to-3d result error:", err);
+    const message = err instanceof Error ? err.message : "";
+    res.status(503).json({ error: publicGenerationError(message) });
+  }
+});
+
+/* ─── Delete ─────────────────────────────────────────────────────────────── */
+
 router.delete("/cad/files/:id", async (req, res): Promise<void> => {
   try {
     await ensureCadTables();

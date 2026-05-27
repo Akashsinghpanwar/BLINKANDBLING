@@ -108,7 +108,7 @@ export const Viewport = forwardRef<ViewportHandle>((_, ref) => {
         <Canvas
           shadows={showShadow}
           dpr={[1, 2]}
-          gl={{ antialias: true, toneMapping: ACESFilmicToneMapping, toneMappingExposure: Math.min(recipe.renderStudio.exposure, 0.85), preserveDrawingBuffer: true }}
+          gl={{ antialias: true, toneMapping: ACESFilmicToneMapping, toneMappingExposure: Math.min(recipe.renderStudio.exposure, 0.68), preserveDrawingBuffer: true }}
           data-testid="viewport-canvas"
         >
           <PerspectiveCamera makeDefault position={VIEW_POS[view]} fov={view === "perspective" ? 28 : 14} />
@@ -117,12 +117,12 @@ export const Viewport = forwardRef<ViewportHandle>((_, ref) => {
 
           {/* Studio lighting — enough environment to make gold look like real gold,
               but no bloom so the diamond doesn't blow out. */}
-          <ambientLight intensity={0.25} />
-          <directionalLight position={[12, 22, 14]} intensity={1.0} castShadow color="#FFF4D6" shadow-mapSize={[2048, 2048]} shadow-bias={-0.0005} />
-          <directionalLight position={[-12, 14, -10]} intensity={0.55} color="#D8E6FF" />
-          <directionalLight position={[0, -8, 16]} intensity={0.4} color="#FFD9A8" />
+          <ambientLight intensity={0.18} />
+          <directionalLight position={[12, 22, 14]} intensity={0.72} castShadow color="#FFF4D6" shadow-mapSize={[2048, 2048]} shadow-bias={-0.0005} />
+          <directionalLight position={[-12, 14, -10]} intensity={0.38} color="#D8E6FF" />
+          <directionalLight position={[0, -8, 16]} intensity={0.25} color="#FFD9A8" />
 
-          <Environment preset={HDRI_PRESETS[recipe.renderStudio.hdri] ?? "studio"} background={false} environmentIntensity={1.1} />
+          <Environment preset={HDRI_PRESETS[recipe.renderStudio.hdri] ?? "studio"} background={false} environmentIntensity={0.82} />
 
           {/* Subtle radial backdrop disc */}
           <mesh position={[0, -10.05, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>

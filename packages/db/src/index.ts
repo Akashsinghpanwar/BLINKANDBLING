@@ -29,10 +29,40 @@ export const pool = new Pool({
   max: positiveIntFromEnv("DB_POOL_MAX", 10),
   min: positiveIntFromEnv("DB_POOL_MIN", 1),
   idleTimeoutMillis: positiveIntFromEnv("DB_IDLE_TIMEOUT_MS", 30_000),
-  connectionTimeoutMillis: positiveIntFromEnv("DB_CONNECTION_TIMEOUT_MS", 8_000),
+  connectionTimeoutMillis: positiveIntFromEnv("DB_CONNECTION_TIMEOUT_MS", 30_000),
   keepAlive: true,
   keepAliveInitialDelayMillis: positiveIntFromEnv("DB_KEEPALIVE_INITIAL_DELAY_MS", 10_000),
 });
+
+const rawPoolQuery = pool.query.bind(pool) as (...args: unknown[]) => unknown;
+
+function isTransientConnectionError(err: unknown) {
+  if (!(err instanceof Error)) return false;
+
+  const detail = `${err.message} ${err.cause instanceof Error ? err.cause.message : ""}`;
+  return /Connection terminated|ECONNRESET|ETIMEDOUT|timeout|Connection ended unexpectedly/i.test(detail);
+}
+
+pool.query = ((...args: unknown[]) => {
+  const maybeCallback = args.at(-1);
+
+  if (typeof maybeCallback === "function") {
+    const queryArgs = args.slice(0, -1);
+    return rawPoolQuery(...queryArgs, (err: unknown, result: unknown) => {
+      if (isTransientConnectionError(err)) {
+        setTimeout(() => rawPoolQuery(...queryArgs, maybeCallback), 150);
+        return;
+      }
+
+      maybeCallback(err, result);
+    });
+  }
+
+  return Promise.resolve(rawPoolQuery(...args)).catch((err: unknown) => {
+    if (!isTransientConnectionError(err)) throw err;
+    return rawPoolQuery(...args);
+  });
+}) as typeof pool.query;
 
 pool.on("error", (err) => {
   console.error("Database pool idle client error:", err);

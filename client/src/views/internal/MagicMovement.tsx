@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type CSSProperties } from 'react'
+import { useState, useRef, useEffect, useCallback, type CSSProperties } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   CircleDot, Crown, Download, Eraser, Flower2, Gem, ImagePlus,
@@ -10,17 +10,12 @@ import { useApp } from '../../context/AppContext'
 import { useProjects } from '../../context/ProjectContext'
 import { photos } from '../../lib/photos'
 import { removeWhiteBackground } from '../../lib/removeBackground'
+import { useBackgroundJobs, type ImageGenJob } from '../../store/backgroundJobs'
 
 interface Reference { id: string; url: string; name: string }
 interface RenderAngle { angle: string; url: string }
 interface Render { id: string; url: string; images: RenderAngle[]; prompt: string; ts: number }
 type RenderJobStatus = 'queued' | 'running' | 'completed' | 'failed'
-interface RenderJobResponse {
-  id: string
-  status: RenderJobStatus
-  result?: { imageUrl?: string; images?: RenderAngle[] }
-  error?: string
-}
 
 const STYLE_LOCK = 'STYLE LOCK: 2D colored-pencil jewellery sketch only, scanned hand-drawn concept art, visible pencil grain, graphite outlines, faceted gemstone linework, transparent PNG cutout, centered single product, no logo, no text, no realistic photo, no 3D, no CAD, no glossy render'
 
@@ -57,45 +52,43 @@ function usableImageUrl(value: unknown): string | null {
 export default function MagicMovement() {
   const { showToast } = useApp()
   const {
-    intakeDNA, saveAiGeneratedFolder,
+    intakeDNA,
+    saveAiGeneratedImage,
     pendingMagicReference, setPendingMagicReference,
     pendingEditResult, setPendingEditResult,
   } = useProjects()
 
+  const { addImageJob, removeJob, cancelAllImageJobs } = useBackgroundJobs()
+
+  // ── Derive generating state from global store ──
+  const activeImageJob = useBackgroundJobs(s =>
+    s.jobs.find((j): j is ImageGenJob =>
+      j.type === 'image-gen' && (j.status === 'queued' || j.status === 'running'),
+    ) ?? null,
+  )
+  const completedImageJob = useBackgroundJobs(s =>
+    s.jobs.find((j): j is ImageGenJob =>
+      j.type === 'image-gen' && (j.status === 'completed' || j.status === 'failed'),
+    ) ?? null,
+  )
+
+  // Local UI state
   const [prompt, setPrompt]     = useState('')
   const [category, setCategory] = useState<typeof CATEGORY_OPTIONS[number]['id']>('women_watch')
   const [references, setReferences] = useState<Reference[]>([])
   const [generated, setGenerated]   = useState<Render | null>(null)
   const [displayUrl, setDisplayUrl] = useState<string | null>(null)
   const [history, setHistory]       = useState<Render[]>([])
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [jobStatus, setJobStatus] = useState<RenderJobStatus | null>(null)
   const [progress, setProgress]     = useState(0)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
 
-  const fileRef = useRef<HTMLInputElement>(null)
-  const activeJobIdRef = useRef<string | null>(null)
-  const galleryBatchRef = useRef<{
-    timer: number | null
-    name: string; prompt: string
-    images: Array<{ url: string; label: string; prompt?: string; angle?: string }>
-  }>({ timer: null, name: '', prompt: '', images: [] })
+  // Derived from store — no local isGenerating/jobStatus state needed
+  const isGenerating = Boolean(activeImageJob)
+  const jobStatus: RenderJobStatus | null = activeImageJob?.status ?? null
 
-  /* ── Gallery save helper ── */
-  const saveAiGeneratedImage = (image: { url: string; label: string; prompt?: string; angle?: string }) => {
-    const batch = galleryBatchRef.current
-    if (!batch.images.length) {
-      batch.name   = new Date().toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
-      batch.prompt = image.prompt || ''
-    }
-    batch.images.push({ ...image, angle: image.angle || image.label.split(' - ')[0] })
-    if (batch.timer) window.clearTimeout(batch.timer)
-    batch.timer = window.setTimeout(() => {
-      const payload = { name: batch.name, prompt: batch.prompt, images: [...batch.images] }
-      batch.images = []; batch.prompt = ''; batch.name = ''; batch.timer = null
-      void saveAiGeneratedFolder(payload).catch(() => showToast('Render created, but gallery save failed', 'error'))
-    }, 0)
-  }
+  const fileRef = useRef<HTMLInputElement>(null)
+  // Track which completed jobs we have already rendered to avoid double-display
+  const displayedJobIdRef = useRef<string | null>(null)
 
   /* ── Auto-fill from Luna intake ── */
   useEffect(() => {
@@ -195,7 +188,8 @@ export default function MagicMovement() {
     return [lunaBrief, prompt].filter(Boolean).join('\n')
   }
 
-  const finishGeneration = async (
+  // finishGeneration: display the result — gallery save is handled by BackgroundJobManager
+  const finishGeneration = useCallback(async (
     data: { imageUrl?: unknown; images?: unknown },
     finalPrompt: string,
   ) => {
@@ -216,47 +210,38 @@ export default function MagicMovement() {
 
     setGenerated(rendered)
     setHistory(prev => [rendered, ...prev].slice(0, 8))
-    saveAiGeneratedImage({
-      url: rendered.url,
-      label: `${rendered.images[0]?.angle || 'Concept'} - ${new Date(rendered.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-      prompt: rendered.prompt,
-    })
-    setIsGenerating(false)
-    setJobStatus(null)
-    activeJobIdRef.current = null
-    showToast(aiUrl ? 'Design ready' : 'AI unavailable - showing placeholder', aiUrl ? 'success' : 'error')
+    // Note: gallery save is done by BackgroundJobManager regardless of which page we're on
 
     const transparent = await removeWhiteBackground(rendered.url)
     setDisplayUrl(transparent)
-  }
+  }, [])
 
-  const pollRenderJob = async (jobId: string): Promise<RenderJobResponse | null> => {
-    for (let attempt = 0; attempt < 180; attempt += 1) {
-      await new Promise(resolve => window.setTimeout(resolve, attempt === 0 ? 900 : 2500))
-      if (activeJobIdRef.current !== jobId) return null
+  /* ── Watch global store for job completion / failure ── */
+  useEffect(() => {
+    if (!completedImageJob) return
+    if (displayedJobIdRef.current === completedImageJob.id) return
+    displayedJobIdRef.current = completedImageJob.id
 
-      const res = await fetch(`/api/ai-render/jobs/${jobId}`, { cache: 'no-store' })
-      const data = await res.json().catch(() => null) as RenderJobResponse | null
-
-      if (!res.ok || !data) {
-        throw new Error(typeof data?.error === 'string' ? data.error : `Render status failed (${res.status})`)
-      }
-
-      setJobStatus(data.status === 'queued' ? 'queued' : 'running')
-      if (data.status === 'completed') return data
-      if (data.status === 'failed') {
-        throw new Error(data.error || 'Image generation failed')
-      }
+    if (completedImageJob.status === 'completed') {
+      void finishGeneration(completedImageJob.result ?? {}, completedImageJob.prompt)
+    } else {
+      // failed — clear the progress UI
+      setProgress(0)
+      setElapsedSeconds(0)
     }
 
-    throw new Error('Render is still running. Please try again in a moment.')
-  }
+    // Remove consumed job from global store
+    removeJob(completedImageJob.id)
+  }, [completedImageJob, finishGeneration, removeJob])
 
   /* ── Generate ── */
   const generate = async () => {
     if (!prompt.trim()) { showToast('Describe the piece first', 'error'); return }
-    setIsGenerating(true)
-    setJobStatus('queued')
+
+    // Cancel any existing active job
+    cancelAllImageJobs()
+    displayedJobIdRef.current = null
+
     setProgress(2)
     setElapsedSeconds(0)
     setGenerated(null)
@@ -274,27 +259,19 @@ export default function MagicMovement() {
           count: 1,
         }),
       })
-      const data = await res.json().catch(() => null) as RenderJobResponse | null
+      const data = await res.json().catch(() => null) as { id?: string; status?: RenderJobStatus; error?: string } | null
       if (!res.ok) {
-        setIsGenerating(false)
-        setJobStatus(null)
         showToast(typeof data?.error === 'string' ? data.error : `Generation failed (${res.status})`, 'error')
         return
       }
       if (!data?.id) throw new Error('Render job was not created')
-      activeJobIdRef.current = data.id
-      setJobStatus(data.status === 'queued' ? 'queued' : 'running')
-      showToast('Render queued', 'success')
 
-      const completed = await pollRenderJob(data.id)
-      if (!completed || activeJobIdRef.current !== data.id) return
-      if (!completed.result) throw new Error('Render completed without an image')
-      await finishGeneration(completed.result, finalPrompt)
-      return
+      // Register in global store — BackgroundJobManager will poll from here on,
+      // even if the user navigates away from this page.
+      addImageJob(data.id, finalPrompt, category)
+      showToast('Render queued — you can navigate away and we will notify you when done', 'info', 5000)
     } catch (error) {
-      setIsGenerating(false)
-      setJobStatus(null)
-      activeJobIdRef.current = null
+      cancelAllImageJobs()
       showToast(error instanceof Error ? error.message : 'Could not reach the API. Start the server or set API_PROXY_TARGET when using Vite dev.', 'error')
     }
   }
@@ -373,9 +350,10 @@ export default function MagicMovement() {
   }
 
   const clearAll = () => {
-    activeJobIdRef.current = null
-    setIsGenerating(false)
-    setJobStatus(null)
+    cancelAllImageJobs()
+    displayedJobIdRef.current = null
+    setProgress(0)
+    setElapsedSeconds(0)
     setPrompt('')
     setCategory('women_watch')
     setReferences([])

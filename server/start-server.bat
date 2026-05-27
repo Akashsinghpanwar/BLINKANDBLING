@@ -24,8 +24,10 @@ set AZURE_OPENAI_RESPONSES_URL=YOUR_AZURE_RESPONSES_URL
 set AZURE_OPENAI_API_VERSION=2025-04-01-preview
 set AZURE_OPENAI_IMAGE_DEPLOYMENT=gpt-image-1
 
-set OPENROUTER_MODEL=openai/gpt-5.4-image-2
-set OPENROUTER_IMAGE_MODEL=openai/gpt-5.4-image-2
+set OPENROUTER_MODEL=google/gemini-3.5-flash
+set OPENROUTER_IMAGE_MODEL=google/gemini-3.1-flash-image-preview
+set OPENROUTER_VIDEO_MODEL=google/veo-3.1
 set OPENROUTER_API_KEY=YOUR_OPENROUTER_API_KEY
+set PUBLIC_BASE_URL=https://your-deployed-app.example.com
 
 node --enable-source-maps dist\index.mjs

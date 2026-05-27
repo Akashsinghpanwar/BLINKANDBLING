@@ -34,6 +34,7 @@ import CustomerTimeline from './views/customer/CustomerTimeline'
 import CustomerSettings from './views/customer/CustomerSettings'
 import UserGallery from './views/customer/UserGallery'
 import { getMe, type AuthUser } from './lib/auth'
+import BackgroundJobManager from './components/BackgroundJobManager'
 
 function InternalPage() {
   const [location] = useLocation()
@@ -96,7 +97,7 @@ function PortalPage() {
     luna: true,
     designs: true,
     gallery: true,
-    cad: portalProject?.cadUnlocked ?? false,
+    cad: true, // 3D viewer + generation always available to customers
     timeline: true,
     payments: true,
     ...(portalProject?.featureAccess || {}),
@@ -108,7 +109,7 @@ function PortalPage() {
     if (sub === 'luna') return access.luna ? <CustomerPortalLuna /> : <LockedCustomerFeature label="Luna" />
     if (sub === 'gallery') return access.gallery ? <UserGallery /> : <LockedCustomerFeature label="User Gallery" />
     if (sub === 'magic-movement') return access.designs ? <MagicMovement /> : <LockedCustomerFeature label="Designs" />
-    if (sub === '3d-studio') return access.cad ? <Studio3D /> : <LockedCustomerFeature label="3D / CAD" />
+    if (sub === '3d-studio') return <Studio3D mode="customer" />
     if (sub === 'timeline') return access.timeline ? <CustomerTimeline /> : <LockedCustomerFeature label="Timeline" />
     if (sub === 'settings') return <CustomerSettings />
     if (sub === 'payments') return <CustomerSettings />  // legacy redirect
@@ -176,6 +177,7 @@ export default function App() {
     <AppProvider>
       <AppWarmup />
       <ProjectProvider>
+        <BackgroundJobManager />
         <WouterRouter base={base}>
           <Router />
         </WouterRouter>

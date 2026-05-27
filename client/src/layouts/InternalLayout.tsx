@@ -12,9 +12,6 @@ const navItems = [
   { name: 'Overview', path: '/workspace', icon: LayoutDashboard },
   { name: 'Clients', path: '/workspace/customers', icon: Users },
   { name: 'Try-On', path: '/workspace/virtual-tryon', icon: Wand2 },
-]
-
-const bottomNavItems = [
   { name: 'Settings', path: '/workspace/settings', icon: Settings },
 ]
 
@@ -172,38 +169,6 @@ export default function InternalLayout({ children }: Props) {
             )
           })}
 
-          {/* Settings — pinned at bottom (desktop) / inline (mobile) */}
-          <div style={isMobile
-            ? { display: 'flex', flexDirection: 'row', alignItems: 'stretch' }
-            : { marginTop: 'auto', paddingTop: 8, borderTop: '1px solid rgba(232,222,216,0.55)' }
-          }>
-            {bottomNavItems.map(item => {
-              const active = isActive(item.path)
-              return (
-                <Link key={item.path} href={item.path} style={linkStyle(active)}>
-                  <item.icon size={isMobile ? 22 : 20} style={{ flexShrink: 0, color: active ? 'var(--bb-rose)' : 'inherit' }} />
-                  {isMobile
-                    ? <span style={{ fontSize: '0.68rem', lineHeight: 1.2, fontWeight: active ? 700 : 500 }}>{item.name}</span>
-                    : (
-                      <AnimatePresence>
-                        {expanded && (
-                          <motion.span
-                            initial={{ opacity: 0, x: -6 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: -6 }}
-                            transition={{ duration: 0.16 }}
-                            style={{ whiteSpace: 'nowrap' }}
-                          >
-                            <strong style={{ fontSize: '0.92rem', lineHeight: 1.15, fontWeight: 700 }}>{item.name}</strong>
-                          </motion.span>
-                        )}
-                      </AnimatePresence>
-                    )
-                  }
-                </Link>
-              )
-            })}
-          </div>
         </nav>
       </aside>
 

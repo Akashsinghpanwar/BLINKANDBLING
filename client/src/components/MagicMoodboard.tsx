@@ -89,6 +89,7 @@ export default function MagicMoodboard({
   const [category, setCategory] = useState<CategoryId>('ring')
   const [images, setImages] = useState<MoodboardImage[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [pendingCount, setPendingCount] = useState(0)
   const [liked, setLiked] = useState<Set<string>>(new Set())
   const [hasGenerated, setHasGenerated] = useState(false)
   const pendingJobsRef = useRef<Set<string>>(new Set())
@@ -110,8 +111,8 @@ export default function MagicMoodboard({
   }, [autoCategory])
 
   const pollJob = useCallback(async (jobId: string, expectedLabel: string, expectedCategory: string) => {
-    const POLL_INTERVAL = 3500
-    const MAX_POLLS = 52  // ~3 minutes
+    const POLL_INTERVAL = 2000
+    const MAX_POLLS = 90  // ~3 minutes
 
     for (let i = 0; i < MAX_POLLS; i++) {
       await new Promise(r => window.setTimeout(r, POLL_INTERVAL))
@@ -134,12 +135,14 @@ export default function MagicMoodboard({
             }])
           }
           pendingJobsRef.current.delete(jobId)
+          setPendingCount(pendingJobsRef.current.size)
           if (pendingJobsRef.current.size === 0) setIsLoading(false)
           return
         }
 
         if (job.status === 'failed') {
           pendingJobsRef.current.delete(jobId)
+          setPendingCount(pendingJobsRef.current.size)
           if (pendingJobsRef.current.size === 0) setIsLoading(false)
           return
         }
@@ -150,6 +153,7 @@ export default function MagicMoodboard({
 
     // timeout
     pendingJobsRef.current.delete(jobId)
+    setPendingCount(pendingJobsRef.current.size)
     if (pendingJobsRef.current.size === 0) setIsLoading(false)
   }, [])
 
@@ -158,6 +162,7 @@ export default function MagicMoodboard({
     pendingJobsRef.current.clear()
     setIsLoading(true)
     setImages([])
+    setPendingCount(0)
     setHasGenerated(true)
 
     try {
@@ -180,6 +185,7 @@ export default function MagicMoodboard({
         pendingJobsRef.current.add(job.id)
         void pollJob(job.id, job.moodboardLabel || category, job.moodboardCategory || category)
       }
+      setPendingCount(pendingJobsRef.current.size)
     } catch {
       setIsLoading(false)
     }
@@ -375,43 +381,8 @@ export default function MagicMoodboard({
                 </button>
               </div>
             </motion.div>
-          ) : isLoading ? (
-            /* ── Loading shimmer grid ── */
-            <motion.div
-              key="loading"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-                gap: 10,
-                alignContent: 'start',
-              }}
-            >
-              {Array.from({ length: imageCount }).map((_, i) => (
-                <ShimmerCard key={i} index={i} />
-              ))}
-              <div style={{
-                gridColumn: '1 / -1',
-                textAlign: 'center',
-                padding: '12px 0',
-                color: 'var(--bb-muted)',
-                fontSize: '0.76rem',
-                fontWeight: 700,
-                letterSpacing: '0.1em',
-                textTransform: 'uppercase',
-              }}>
-                <motion.span
-                  animate={{ opacity: [0.4, 1, 0.4] }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                >
-                  Crafting concept directions...
-                </motion.span>
-              </div>
-            </motion.div>
           ) : (
-            /* ── Results grid ── */
+            /* ── Progressive grid: completed images + shimmer placeholders for pending ── */
             <motion.div
               key="results"
               initial={{ opacity: 0 }}
@@ -424,6 +395,7 @@ export default function MagicMoodboard({
                 alignContent: 'start',
               }}
             >
+              {/* Completed images */}
               {images.map((img, i) => (
                 <motion.div
                   key={img.id}
@@ -540,41 +512,70 @@ export default function MagicMoodboard({
                 </motion.div>
               ))}
 
-              {/* Generate more button */}
-              <motion.button
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: images.length * 0.06 + 0.1 }}
-                onClick={generateConcepts}
-                disabled={isLoading}
-                style={{
+              {/* Shimmer placeholders for jobs still in flight */}
+              {isLoading && Array.from({ length: pendingCount }).map((_, i) => (
+                <ShimmerCard key={`pending-${i}`} index={images.length + i} />
+              ))}
+
+              {/* Status label while generating */}
+              {isLoading && (
+                <div style={{
                   gridColumn: '1 / -1',
-                  padding: '14px 20px',
-                  borderRadius: 12,
-                  border: '1.5px dashed var(--bb-line)',
-                  background: 'rgba(255,255,255,0.5)',
+                  textAlign: 'center',
+                  padding: '12px 0',
                   color: 'var(--bb-muted)',
-                  fontSize: '0.78rem',
+                  fontSize: '0.76rem',
                   fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                  transition: 'all 0.2s ease',
-                }}
-                onMouseEnter={e => {
-                  e.currentTarget.style.borderColor = 'var(--bb-rose)'
-                  e.currentTarget.style.color = 'var(--bb-rose)'
-                }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.borderColor = 'var(--bb-line)'
-                  e.currentTarget.style.color = 'var(--bb-muted)'
-                }}
-              >
-                <RefreshCcw size={14} />
-                Generate fresh directions
-              </motion.button>
+                  letterSpacing: '0.1em',
+                  textTransform: 'uppercase',
+                }}>
+                  <motion.span
+                    animate={{ opacity: [0.4, 1, 0.4] }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                  >
+                    {images.length > 0
+                      ? `${images.length} ready · ${pendingCount} generating…`
+                      : 'Crafting concept directions…'}
+                  </motion.span>
+                </div>
+              )}
+
+              {/* Generate more button (only shown when all done) */}
+              {!isLoading && (
+                <motion.button
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: images.length * 0.06 + 0.1 }}
+                  onClick={generateConcepts}
+                  style={{
+                    gridColumn: '1 / -1',
+                    padding: '14px 20px',
+                    borderRadius: 12,
+                    border: '1.5px dashed var(--bb-line)',
+                    background: 'rgba(255,255,255,0.5)',
+                    color: 'var(--bb-muted)',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    transition: 'all 0.2s ease',
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.borderColor = 'var(--bb-rose)'
+                    e.currentTarget.style.color = 'var(--bb-rose)'
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.borderColor = 'var(--bb-line)'
+                    e.currentTarget.style.color = 'var(--bb-muted)'
+                  }}
+                >
+                  <RefreshCcw size={14} />
+                  Generate fresh directions
+                </motion.button>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

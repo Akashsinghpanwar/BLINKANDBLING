@@ -1,6 +1,8 @@
-import { Suspense, useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useLoader } from '@react-three/fiber'
-import { Center, Environment, OrbitControls, PerspectiveCamera } from '@react-three/drei'
+import { Center, ContactShadows, Environment, OrbitControls, PerspectiveCamera } from '@react-three/drei'
+import { EffectComposer, Bloom, ToneMapping } from '@react-three/postprocessing'
+import { ToneMappingMode } from 'postprocessing'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -10,7 +12,82 @@ import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { TDSLoader } from 'three/examples/jsm/loaders/TDSLoader.js'
 import * as THREE from 'three'
-import { Box, Download, FileArchive, FileText, RotateCcw, Trash2, Upload } from 'lucide-react'
+
+/**
+ * Traverse a loaded 3D object and upgrade materials to jewelry-quality PBR.
+ *
+ * Heuristics (works on TRELLIS vertex-colored meshes and textured GLTFs):
+ *  - Warm golden hue  → high-metalness gold  (metalness 0.97, roughness 0.07)
+ *  - Cool neutral     → polished silver/platinum (metalness 0.97, roughness 0.09)
+ *  - Saturated colour → gemstone (MeshPhysicalMaterial, transmission + IOR)
+ *  - Everything else  → default jewelry metal (metalness 0.88, roughness 0.14)
+ */
+function upgradeToJewelryPBR(object: THREE.Object3D) {
+  object.traverse(child => {
+    if (!(child instanceof THREE.Mesh)) return
+
+    const geometry = child.geometry as THREE.BufferGeometry
+    const colorAttr = geometry.attributes['color']
+
+    // Compute average RGB from vertex colors if present
+    let r = 0.72, g = 0.60, b = 0.20 // gold fallback
+    if (colorAttr) {
+      const n = colorAttr.count
+      let sr = 0, sg = 0, sb = 0
+      for (let i = 0; i < n; i++) {
+        sr += colorAttr.getX(i)
+        sg += colorAttr.getY(i)
+        sb += colorAttr.getZ(i)
+      }
+      r = sr / n; g = sg / n; b = sb / n
+    } else {
+      const mats = Array.isArray(child.material) ? child.material : [child.material]
+      const m = mats[0] as THREE.MeshStandardMaterial | undefined
+      if (m?.color) { r = m.color.r; g = m.color.g; b = m.color.b }
+    }
+
+    const max = Math.max(r, g, b)
+    const min = Math.min(r, g, b)
+    const saturation = max > 0 ? (max - min) / max : 0
+    const value = max
+
+    const applyMetal = (metalness: number, roughness: number) => {
+      const mats = Array.isArray(child.material) ? child.material : [child.material]
+      mats.forEach(m => {
+        const sm = m as THREE.MeshStandardMaterial
+        sm.metalness = metalness
+        sm.roughness = roughness
+        sm.envMapIntensity = 2.4
+        sm.needsUpdate = true
+      })
+    }
+
+    if (r > 0.46 && r > g * 1.15 && b < 0.32 && value > 0.38) {
+      // Gold — warm tone, r dominates
+      applyMetal(0.97, 0.07)
+    } else if (saturation < 0.13 && value > 0.42) {
+      // Silver / platinum — near-neutral, bright
+      applyMetal(0.97, 0.09)
+    } else if (saturation > 0.38 && value > 0.25) {
+      // Gem — highly saturated (amethyst, sapphire, ruby, emerald …)
+      child.material = new THREE.MeshPhysicalMaterial({
+        color: new THREE.Color(r, g, b),
+        vertexColors: !!colorAttr,
+        metalness: 0,
+        roughness: 0.02,
+        transmission: 0.88,
+        ior: 1.77,          // sapphire / ruby / most faceted gems
+        thickness: 0.4,
+        envMapIntensity: 3.2,
+        transparent: true,
+      })
+    } else {
+      // Default jewelry metal
+      applyMetal(0.88, 0.14)
+    }
+  })
+}
+import { Box, Download, FileArchive, FileText, Maximize2, Minimize2, RotateCcw, Trash2, Upload } from 'lucide-react'
 import { useProjects, type CadFile } from '../context/ProjectContext'
 import { useApp } from '../context/AppContext'
 
@@ -77,22 +154,31 @@ function StlModel({ url }: { url: string }) {
     clone.center()
     return clone
   }, [geometry])
+  // STL has no color data — render as polished gold by default
   return (
     <mesh geometry={normalized} castShadow receiveShadow>
-      <meshStandardMaterial color="#d8d2ca" metalness={0.45} roughness={0.32} />
+      <meshPhysicalMaterial color="#d4a853" metalness={0.97} roughness={0.07} envMapIntensity={2.4} />
     </mesh>
   )
 }
 
 function ObjModel({ url }: { url: string }) {
   const object = useLoader(OBJLoader, url)
-  const clone = useMemo(() => object.clone(true), [object])
-  return <primitive object={clone} />
+  const scene = useMemo(() => {
+    const clone = object.clone(true)
+    upgradeToJewelryPBR(clone)
+    return clone
+  }, [object])
+  return <primitive object={scene} />
 }
 
 function GltfModel({ url }: { url: string }) {
   const gltf = useLoader(GLTFLoader, url)
-  const scene = useMemo(() => gltf.scene.clone(true), [gltf.scene])
+  const scene = useMemo(() => {
+    const clone = gltf.scene.clone(true)
+    upgradeToJewelryPBR(clone)
+    return clone
+  }, [gltf.scene])
   return <primitive object={scene} />
 }
 
@@ -106,33 +192,49 @@ function PlyModel({ url }: { url: string }) {
   }, [geometry])
   return (
     <mesh geometry={normalized} castShadow receiveShadow>
-      <meshStandardMaterial color="#d8d2ca" metalness={0.35} roughness={0.38} />
+      <meshPhysicalMaterial color="#d4a853" metalness={0.97} roughness={0.07} envMapIntensity={2.4} />
     </mesh>
   )
 }
 
 function ThreeMfModel({ url }: { url: string }) {
   const object = useLoader(ThreeMFLoader, url)
-  const clone = useMemo(() => object.clone(true), [object])
-  return <primitive object={clone} />
+  const scene = useMemo(() => {
+    const clone = object.clone(true)
+    upgradeToJewelryPBR(clone)
+    return clone
+  }, [object])
+  return <primitive object={scene} />
 }
 
 function ColladaModel({ url }: { url: string }) {
   const collada = useLoader(ColladaLoader, url)
-  const scene = useMemo(() => (collada?.scene || new THREE.Group()).clone(true), [collada])
+  const scene = useMemo(() => {
+    const base = (collada?.scene || new THREE.Group()).clone(true)
+    upgradeToJewelryPBR(base)
+    return base
+  }, [collada])
   return <primitive object={scene} />
 }
 
 function FbxModel({ url }: { url: string }) {
   const object = useLoader(FBXLoader, url)
-  const clone = useMemo(() => object.clone(true), [object])
-  return <primitive object={clone} />
+  const scene = useMemo(() => {
+    const clone = object.clone(true)
+    upgradeToJewelryPBR(clone)
+    return clone
+  }, [object])
+  return <primitive object={scene} />
 }
 
 function ThreeDsModel({ url }: { url: string }) {
   const object = useLoader(TDSLoader, url)
-  const clone = useMemo(() => object.clone(true), [object])
-  return <primitive object={clone} />
+  const scene = useMemo(() => {
+    const clone = object.clone(true)
+    upgradeToJewelryPBR(clone)
+    return clone
+  }, [object])
+  return <primitive object={scene} />
 }
 
 function CadModel({ file }: { file: UploadedCadFile }) {
@@ -154,18 +256,68 @@ function CadModel({ file }: { file: UploadedCadFile }) {
 
 function ViewerCanvas({ file }: { file: UploadedCadFile }) {
   return (
-    <Canvas shadows dpr={[1, 2]} gl={{ antialias: true }} style={{ display: 'block', width: '100%', height: '100%' }}>
-      <PerspectiveCamera makeDefault position={[8, 7, 10]} fov={35} />
-      <color attach="background" args={['#d4d4d4']} />
-      <ambientLight intensity={0.45} />
-      <directionalLight position={[8, 12, 8]} intensity={1.3} castShadow />
-      <directionalLight position={[-8, 5, -4]} intensity={0.5} />
-      <Environment preset="studio" environmentIntensity={1.1} />
-      <gridHelper args={[20, 20, '#9ca3af', '#eeeeee']} position={[0, -2.8, 0]} />
+    <Canvas
+      shadows
+      dpr={[1, 2]}
+      gl={{ antialias: true, toneMapping: THREE.NoToneMapping }}
+      style={{ display: 'block', width: '100%', height: '100%' }}
+    >
+      <PerspectiveCamera makeDefault position={[8, 7, 10]} fov={32} />
+
+      {/* Dark velvet background — makes metals and gems pop */}
+      <color attach="background" args={['#111114']} />
+
+      {/* ── Jewelry studio 3-point lighting ── */}
+      {/* Key light: warm top-right, simulates overhead studio spot */}
+      <spotLight
+        position={[12, 18, 10]} angle={0.22} penumbra={0.55}
+        intensity={5.5} castShadow color="#fff8ee"
+        shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004}
+      />
+      {/* Fill light: cool left, lifts shadows without washing out */}
+      <spotLight
+        position={[-10, 10, -6]} angle={0.38} penumbra={0.9}
+        intensity={2.2} color="#dceeff"
+      />
+      {/* Rim light: bottom-front, adds separation from background */}
+      <spotLight
+        position={[1, -5, 14]} angle={0.5} penumbra={1}
+        intensity={1.4} color="#fff4e8"
+      />
+      {/* Ambient: very low so shadows stay deep */}
+      <ambientLight intensity={0.12} />
+
+      {/* Studio HDRI — drives reflections on polished metal */}
+      <Environment preset="studio" environmentIntensity={2.0} />
+
       <Suspense fallback={null}>
-        <CadModel file={file} />
+        <Center>
+          <group rotation={[-Math.PI / 2, 0, 0]}>
+            <CadModel file={file} />
+          </group>
+        </Center>
+        {/* Soft contact shadow on the ground plane */}
+        <ContactShadows
+          position={[0, -3.2, 0]}
+          opacity={0.55} scale={22} blur={2.5} far={5}
+          color="#000000"
+        />
       </Suspense>
-      <OrbitControls enableDamping dampingFactor={0.08} target={[0, 0, 0]} />
+
+      <OrbitControls enableDamping dampingFactor={0.07} target={[0, 0, 0]} />
+
+      {/* ── Post-processing ── */}
+      <EffectComposer>
+        {/* Bloom: makes polished metal edges and gem facets glow */}
+        <Bloom
+          intensity={0.55}
+          luminanceThreshold={0.72}
+          luminanceSmoothing={0.45}
+          mipmapBlur
+        />
+        {/* ACES Filmic: industry-standard photorealistic tone curve */}
+        <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+      </EffectComposer>
     </Canvas>
   )
 }
@@ -183,14 +335,40 @@ function useMobile(breakpoint = 768) {
   return mobile
 }
 
-export default function CadFileViewer() {
+interface CadFileViewerProps {
+  /** Hide the delete button (e.g. for customer portal). Upload is always available. */
+  canDelete?: boolean
+}
+
+export default function CadFileViewer({ canDelete = true }: CadFileViewerProps) {
   const { showToast } = useApp()
   const { cadFiles, saveCadFile, deleteCadFile, viewerCadFile, setViewerCadFile } = useProjects()
   const [file, setFile] = useState<UploadedCadFile | null>(null)
   const [activeSavedId, setActiveSavedId] = useState<string | null>(null)
   const [viewKey, setViewKey] = useState(0)
   const [saving, setSaving] = useState(false)
+  const [maximized, setMaximized] = useState(false)
+  const viewerRef = useRef<HTMLElement>(null)
   const mobile = useMobile()
+
+  // Sync maximized state with browser fullscreen events (e.g. user presses Esc)
+  useEffect(() => {
+    const onFsChange = () => {
+      if (!document.fullscreenElement) setMaximized(false)
+    }
+    document.addEventListener('fullscreenchange', onFsChange)
+    return () => document.removeEventListener('fullscreenchange', onFsChange)
+  }, [])
+
+  const toggleMaximize = () => {
+    if (!maximized) {
+      viewerRef.current?.requestFullscreen?.().catch(() => {})
+      setMaximized(true)
+    } else {
+      document.exitFullscreen?.().catch(() => {})
+      setMaximized(false)
+    }
+  }
 
   useEffect(() => {
     if (!viewerCadFile) return
@@ -245,42 +423,45 @@ export default function CadFileViewer() {
   }
 
   /* ─── viewer panel ───────────────────────────────────── */
-  const viewerHeight = mobile ? Math.min(Math.round(window.innerWidth * 0.82), 400) : 640
   const viewerSection = (
     <section
+      ref={viewerRef}
       className="bb-card"
       style={{
-        height: viewerHeight,
         borderRadius: 18,
         overflow: 'hidden',
         position: 'relative',
-        background: 'linear-gradient(145deg, #2f2f31, #d7d7d7 38%, #f6f1ee)',
-        border: '1px solid rgba(184,184,184,0.9)',
+        background: '#111114',
+        border: '1px solid rgba(80,70,90,0.6)',
         boxShadow: '0 24px 70px rgba(31,27,29,0.18)',
-        flexShrink: 0,
+        height: '100%',
+        minHeight: mobile ? 320 : 0,
       }}
     >
-      {/* file name badge */}
-      {file && (
-        <div style={{
-          position: 'absolute', top: 12, left: 12, right: 12, zIndex: 2,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          gap: 12, pointerEvents: 'none',
+      {/* Top bar: filename badge + maximize button */}
+      <div style={{
+        position: 'absolute', top: 12, left: 12, right: 12, zIndex: 2,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        gap: 12,
+      }}>
+        {/* Filename badge */}
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: 8,
+          borderRadius: 999, padding: mobile ? '6px 10px' : '8px 12px',
+          background: 'rgba(20,18,28,0.72)', backdropFilter: 'blur(12px)',
+          color: 'rgba(255,255,255,0.9)', fontWeight: 900,
+          fontSize: mobile ? '0.7rem' : '0.78rem',
+          maxWidth: '70%', overflow: 'hidden',
+          textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          pointerEvents: 'none',
         }}>
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: 8,
-            borderRadius: 999, padding: mobile ? '6px 10px' : '8px 12px',
-            background: 'rgba(255,255,255,0.78)', backdropFilter: 'blur(12px)',
-            color: 'var(--bb-ink)', fontWeight: 900,
-            fontSize: mobile ? '0.7rem' : '0.78rem',
-            maxWidth: '80%', overflow: 'hidden',
-            textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>
-            <Box size={mobile ? 12 : 14} /> {file.name}
-          </span>
+          <Box size={mobile ? 12 : 14} />
+          {file ? file.name : 'No file loaded'}
+        </span>
 
-          {/* touch hint for mobile */}
-          {mobile && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Touch hint for mobile */}
+          {mobile && file && (
             <span style={{
               display: 'inline-flex', alignItems: 'center', gap: 4,
               borderRadius: 999, padding: '5px 9px',
@@ -291,8 +472,34 @@ export default function CadFileViewer() {
               👆 Drag to rotate
             </span>
           )}
+
+          {/* Maximize / minimize button */}
+          <button
+            onClick={toggleMaximize}
+            title={maximized ? 'Exit fullscreen' : 'Fullscreen'}
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 36, height: 36, borderRadius: 10,
+              border: '1px solid rgba(255,255,255,0.15)',
+              background: 'rgba(20,18,28,0.72)',
+              backdropFilter: 'blur(12px)',
+              color: 'rgba(255,255,255,0.85)',
+              cursor: 'pointer',
+              transition: 'background 0.15s, transform 0.15s',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = 'rgba(168,85,247,0.45)'
+              e.currentTarget.style.transform = 'scale(1.08)'
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = 'rgba(20,18,28,0.72)'
+              e.currentTarget.style.transform = 'scale(1)'
+            }}
+          >
+            {maximized ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+          </button>
         </div>
-      )}
+      </div>
 
       {file?.previewKind && file.previewKind !== 'unsupported' ? (
         <div style={{ width: '100%', height: '100%' }}>
@@ -324,7 +531,7 @@ export default function CadFileViewer() {
 
   /* ─── sidebar panel ──────────────────────────────────── */
   const sidebarSection = (
-    <aside style={{ display: 'grid', gap: 12, alignContent: 'start' }}>
+    <aside style={{ display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto', overflowX: 'hidden', height: '100%', scrollbarWidth: 'thin' }}>
 
       {/* Upload + File info — side-by-side on mobile */}
       <div style={{
@@ -378,7 +585,7 @@ export default function CadFileViewer() {
                 </div>
               </div>
               <button className="bb-btn-secondary" onClick={() => setViewKey(prev => prev + 1)} style={{ width: '100%', justifyContent: 'center', fontSize: '0.8rem' }}>
-                <RotateCcw size={13} /> Reset
+                <RotateCcw size={13} /> Reset view
               </button>
               <a className="bb-btn-secondary" href={file.url} download={file.name} style={{ width: '100%', justifyContent: 'center', textDecoration: 'none', fontSize: '0.8rem' }}>
                 <Download size={13} /> Download
@@ -392,10 +599,12 @@ export default function CadFileViewer() {
         </section>
       </div>
 
-      {/* Saved CAD folder */}
-      <section className="bb-card" style={{ padding: mobile ? 14 : 18, borderRadius: 16, boxShadow: '0 18px 42px rgba(53,40,35,0.08)' }}>
-        <span className="bb-eyebrow" style={{ color: 'var(--bb-pillar-1)', display: 'block', marginBottom: 10 }}>Saved CAD folder</span>
-        <div style={{ display: 'grid', gap: 7, maxHeight: mobile ? 200 : 330, overflowY: 'auto', paddingRight: 4 }}>
+      {/* Saved CAD folder — grows to fill remaining sidebar */}
+      <section className="bb-card" style={{ padding: mobile ? 14 : 18, borderRadius: 16, boxShadow: '0 18px 42px rgba(53,40,35,0.08)', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <span className="bb-eyebrow" style={{ color: 'var(--bb-pillar-1)', display: 'block', marginBottom: 10, flexShrink: 0 }}>
+          {canDelete ? 'Saved CAD folder' : 'Your 3D models'}
+        </span>
+        <div style={{ display: 'grid', gap: 7, overflowY: 'auto', paddingRight: 4, flex: 1, minHeight: 0, alignContent: 'start' }}>
           {cadFiles.map(saved => {
             const extension = (saved.extension || saved.name.split('.').pop() || '').toUpperCase()
             const active = activeSavedId === saved.id
@@ -404,7 +613,7 @@ export default function CadFileViewer() {
                 key={saved.id}
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '1fr auto',
+                  gridTemplateColumns: canDelete ? '1fr auto' : '1fr',
                   gap: 6,
                   alignItems: 'center',
                   border: `1px solid ${active ? 'var(--bb-rose)' : 'var(--bb-line)'}`,
@@ -425,14 +634,18 @@ export default function CadFileViewer() {
                     <span style={{ display: 'block', color: 'var(--bb-muted)', fontSize: '0.7rem' }}>{extension} · {formatSize(saved.size || 0)}</span>
                   </span>
                 </button>
-                <button className="bb-icon-btn" onClick={() => void removeSaved(saved.id)} aria-label="Delete CAD file">
-                  <Trash2 size={13} />
-                </button>
+                {canDelete && (
+                  <button className="bb-icon-btn" onClick={() => void removeSaved(saved.id)} aria-label="Delete CAD file">
+                    <Trash2 size={13} />
+                  </button>
+                )}
               </div>
             )
           })}
           {cadFiles.length === 0 && (
-            <div style={{ color: 'var(--bb-muted)', fontSize: '0.84rem', lineHeight: 1.5 }}>No CAD files saved yet.</div>
+            <div style={{ color: 'var(--bb-muted)', fontSize: '0.84rem', lineHeight: 1.5 }}>
+              {canDelete ? 'No CAD files saved yet.' : 'No 3D models saved yet.'}
+            </div>
           )}
         </div>
       </section>
@@ -440,43 +653,40 @@ export default function CadFileViewer() {
   )
 
   return (
-    <div style={{ display: 'grid', gap: 12 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 12, overflow: 'hidden' }}>
       {/* Header */}
-      <section
-        style={{
-          borderRadius: 18,
-          border: '1px solid rgba(210,185,176,0.9)',
-          background: 'linear-gradient(135deg, rgba(255,255,255,0.96), rgba(255,247,244,0.88))',
-          boxShadow: '0 22px 70px rgba(40,32,30,0.12)',
-          padding: mobile ? '12px 16px' : 16,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-        }}
-      >
-        <div>
-          <span className="bb-eyebrow" style={{ color: 'var(--bb-rose)' }}>AutoCAD Viewer</span>
-          <h2 style={{ margin: '4px 0 0', color: 'var(--bb-ink)', fontFamily: 'var(--app-font-display)', fontWeight: 500, fontSize: mobile ? '1.2rem' : '1.55rem' }}>
-            CAD file studio
-          </h2>
-        </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexShrink: 0, padding: '2px 4px' }}>
+        <h2 style={{
+          margin: 0,
+          fontFamily: 'var(--app-font-display)',
+          fontWeight: 700,
+          fontSize: mobile ? '1.15rem' : '1.45rem',
+          color: '#e879a0',
+          textShadow: '0 0 18px rgba(236,72,153,0.55), 0 0 40px rgba(167,90,255,0.30)',
+          letterSpacing: '-0.01em',
+        }}>
+          {canDelete ? 'CAD file studio' : 'Your 3D models'}
+        </h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--bb-muted)', fontWeight: 800, fontSize: mobile ? '0.74rem' : '0.82rem' }}>
           <FileArchive size={14} /> {cadFiles.length} files
         </div>
-      </section>
+      </div>
 
-      {/* Body — responsive layout */}
+      {/* Body — fills remaining height */}
       {mobile ? (
-        /* ── Mobile: viewer on top, sidebar below ── */
-        <div style={{ display: 'grid', gap: 12 }}>
-          {viewerSection}
+        /* ── Mobile: viewer on top, sidebar below (natural scroll) ── */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, overflow: 'auto', flex: 1 }}>
+          <div style={{ height: Math.min(Math.round(window.innerWidth * 0.82), 400) }}>
+            {viewerSection}
+          </div>
           {sidebarSection}
         </div>
       ) : (
-        /* ── Desktop: sidebar left, viewer right ── */
-        <div style={{ display: 'grid', gridTemplateColumns: '340px minmax(0, 1fr)', gap: 14 }}>
-          {sidebarSection}
+        /* ── Desktop: sidebar left, viewer right — both fill remaining height ── */
+        <div style={{ display: 'grid', gridTemplateColumns: '280px minmax(0, 1fr)', gap: 14, flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <div style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            {sidebarSection}
+          </div>
           {viewerSection}
         </div>
       )}

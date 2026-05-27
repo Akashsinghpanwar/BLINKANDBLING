@@ -37,6 +37,7 @@ const createFolderSchema = z.object({
   name: z.string().min(1).max(200),
   prompt: z.string().max(8000).optional().default(""),
   images: z.array(imageSchema).min(1).max(12),
+  source: z.enum(["ai", "tryon"]).optional().default("ai"),
 });
 
 const renameFolderSchema = z.object({
@@ -46,32 +47,52 @@ const renameFolderSchema = z.object({
 let galleryTablesReady: Promise<void> | null = null;
 
 async function runGalleryTableSetup() {
+  // Create tables (idempotent — safe if already exist)
   await pool.query(`
     create table if not exists bb_gallery_folders (
-      id uuid primary key default gen_random_uuid(),
-      user_id varchar(255),
-      name varchar(200) not null,
-      source varchar(40) not null default 'ai',
-      prompt text,
-      created_at timestamptz not null default now(),
-      updated_at timestamptz not null default now()
+      id         varchar(120) primary key,
+      user_id    varchar(255),
+      name       varchar(500) not null,
+      source     varchar(40)  not null default 'ai',
+      prompt     text,
+      created_at timestamptz  not null default now(),
+      updated_at timestamptz  not null default now()
     );
+
+    create table if not exists bb_gallery_images (
+      id         varchar(120) primary key,
+      folder_id  varchar(120) not null references bb_gallery_folders(id) on delete cascade,
+      url        text         not null,
+      label      varchar(500),
+      angle      varchar(120),
+      prompt     text,
+      created_at timestamptz  not null default now()
+    );
+  `);
+
+  // Add source column to existing tables that were created without it
+  await pool.query(`
+    alter table bb_gallery_folders
+      add column if not exists source varchar(40) not null default 'ai';
 
     create index if not exists idx_bb_gallery_folders_user_source
       on bb_gallery_folders(user_id, source, created_at desc);
 
-    create table if not exists bb_gallery_images (
-      id uuid primary key default gen_random_uuid(),
-      folder_id uuid not null references bb_gallery_folders(id) on delete cascade,
-      url text not null,
-      label varchar(200) not null,
-      angle varchar(120),
-      prompt text,
-      created_at timestamptz not null default now()
-    );
-
     create index if not exists idx_bb_gallery_images_folder
       on bb_gallery_images(folder_id, created_at asc);
+  `);
+
+  // Fix historical try-on records that were saved with source='ai' by mistake.
+  // Folders named with the Virtual Try-On or Motion Sequence prefix were always
+  // created by the VirtualTryOn page — reclassify them to source='tryon'.
+  await pool.query(`
+    update bb_gallery_folders
+    set source = 'tryon'
+    where source = 'ai'
+      and (
+        name ilike 'Virtual Try-On%'
+        or name ilike 'Motion Sequence%'
+      );
   `);
 }
 
@@ -107,6 +128,10 @@ router.get("/gallery/folders", async (req, res): Promise<void> => {
     // Return /api/gallery/images/:id as the URL — this keeps the list response
     // lightweight (no 1-2 MB base64 blobs per image) and lets the browser
     // stream each image individually.
+    const source = typeof req.query["source"] === "string" ? req.query["source"] : "ai";
+    const allowedSources = ["ai", "tryon"];
+    const effectiveSource = allowedSources.includes(source) ? source : "ai";
+
     const { rows } = await pool.query(
       `
         select
@@ -132,11 +157,11 @@ router.get("/gallery/folders", async (req, res): Promise<void> => {
           ) as images
         from bb_gallery_folders f
         left join bb_gallery_images i on i.folder_id = f.id
-        where f.user_id = $1 and f.source = 'ai'
+        where f.user_id = $1 and f.source = $2
         group by f.id
         order by f.created_at desc
       `,
-      [userId],
+      [userId, effectiveSource],
     );
     res.json({ folders: rows });
   } catch (err) {
@@ -200,10 +225,10 @@ router.post("/gallery/folders", async (req, res): Promise<void> => {
     const folderResult = await client.query(
       `
         insert into bb_gallery_folders(user_id, name, source, prompt)
-        values ($1, $2, 'ai', $3)
+        values ($1, $2, $3, $4)
         returning id, name, source, prompt, created_at as "createdAt", updated_at as "updatedAt"
       `,
-      [ownerId(req), parsed.data.name, parsed.data.prompt],
+      [ownerId(req), parsed.data.name, parsed.data.source, parsed.data.prompt],
     );
     const folder = folderResult.rows[0];
 
@@ -252,7 +277,7 @@ router.patch("/gallery/folders/:id", async (req, res): Promise<void> => {
       `
         update bb_gallery_folders
         set name = $1, updated_at = now()
-        where id = $2 and user_id = $3 and source = 'ai'
+        where id = $2 and user_id = $3
         returning id, name, source, prompt, created_at as "createdAt", updated_at as "updatedAt"
       `,
       [parsed.data.name, req.params.id, ownerId(req)],
@@ -272,7 +297,7 @@ router.delete("/gallery/folders/:id", async (req, res): Promise<void> => {
   try {
     await ensureGalleryTables();
     const result = await pool.query(
-      "delete from bb_gallery_folders where id = $1 and user_id = $2 and source = 'ai'",
+      "delete from bb_gallery_folders where id = $1 and user_id = $2",
       [req.params.id, ownerId(req)],
     );
     if (!result.rowCount) {

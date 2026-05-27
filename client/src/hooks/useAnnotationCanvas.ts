@@ -26,9 +26,7 @@ export function useAnnotationCanvas(active: boolean, imageSrc?: string | null) {
     const canvas = canvasRef.current
     const wrap = imageWrapRef.current
     if (!canvas || !wrap) return
-    const img = wrap.querySelector('img')
-    if (!img) return
-    const rect = img.getBoundingClientRect()
+    const rect = wrap.getBoundingClientRect()
     if (!rect.width) return
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
     canvas.width = Math.round(rect.width * dpr)
@@ -143,16 +141,30 @@ export function useAnnotationCanvas(active: boolean, imageSrc?: string | null) {
     baseImg.crossOrigin = 'anonymous'
     baseImg.src = sourceUrl
     await baseImg.decode()
+    const ac = canvasRef.current
+    const wrap = imageWrapRef.current
+    const displayImg = wrap?.querySelector('img')
     const c = document.createElement('canvas')
-    c.width = baseImg.naturalWidth
-    c.height = baseImg.naturalHeight
+    c.width = ac?.width && ac.width > 0 ? ac.width : baseImg.naturalWidth
+    c.height = ac?.height && ac.height > 0 ? ac.height : baseImg.naturalHeight
     const ctx = c.getContext('2d')
     if (!ctx) throw new Error('Canvas unavailable')
-    ctx.fillStyle = '#ffffff'
-    ctx.fillRect(0, 0, c.width, c.height)
-    ctx.drawImage(baseImg, 0, 0, c.width, c.height)
-    const ac = canvasRef.current
-    if (ac && ac.width > 0) ctx.drawImage(ac, 0, 0, c.width, c.height)
+
+    if (ac && ac.width > 0 && wrap && displayImg) {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2)
+      const wrapRect = wrap.getBoundingClientRect()
+      const imgRect = displayImg.getBoundingClientRect()
+      const x = Math.round((imgRect.left - wrapRect.left) * dpr)
+      const y = Math.round((imgRect.top - wrapRect.top) * dpr)
+      const w = Math.max(1, Math.round(imgRect.width * dpr))
+      const h = Math.max(1, Math.round(imgRect.height * dpr))
+      ctx.drawImage(baseImg, x, y, w, h)
+      ctx.drawImage(ac, 0, 0, c.width, c.height)
+    } else {
+      ctx.drawImage(baseImg, 0, 0, c.width, c.height)
+      if (ac && ac.width > 0) ctx.drawImage(ac, 0, 0, c.width, c.height)
+    }
+
     return { dataUrl: c.toDataURL('image/png'), textLabels: textAnnotations.map(a => a.text) }
   }, [textAnnotations])
 

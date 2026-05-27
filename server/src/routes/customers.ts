@@ -73,6 +73,8 @@ async function runCustomerTableSetup() {
   await pool.query(`
     alter table bb_customer_workspaces
       add column if not exists feature_access jsonb not null default '{"overview":true,"luna":true,"designs":true,"gallery":true,"cad":false,"timeline":true,"payments":true}'::jsonb;
+    alter table bb_customer_workspaces
+      add column if not exists intake_dna jsonb;
   `);
 
   await pool.query(`
@@ -144,6 +146,7 @@ function toProject(row: any) {
     timeline: row.timeline,
     cadUnlocked: featureAccess.cad,
     featureAccess,
+    intakeDNA: row.intake_dna ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -236,36 +239,54 @@ router.patch("/customers/:id", async (req, res): Promise<void> => {
 
   try {
     await ensureCustomerTables();
-    const userId = req.session.userId || "demo";
+
+    // Determine caller: jeweller (has userId) or customer portal (has customerProjectId)
+    const isCustomerSelf = !req.session.userId && !!req.session.customerProjectId
+      && req.session.customerProjectId === req.params.id;
+    const jewellerId = req.session.userId || "demo";
 
     const setClauses: string[] = [];
     const values: unknown[] = [];
     let idx = 1;
 
-    if (fields.projectName !== undefined) { setClauses.push(`project_name = $${idx++}`); values.push(fields.projectName); }
-    if (fields.budget !== undefined) { setClauses.push(`budget = $${idx++}`); values.push(fields.budget || "Not set"); }
-    if (fields.metalPreference !== undefined) { setClauses.push(`metal_preference = $${idx++}`); values.push(fields.metalPreference || "Not set"); }
-    if (fields.gemstonePreference !== undefined) { setClauses.push(`gemstone_preference = $${idx++}`); values.push(fields.gemstonePreference || "Not set"); }
-    if (fields.ringSize !== undefined) { setClauses.push(`ring_size = $${idx++}`); values.push(fields.ringSize || "Not set"); }
-    if (fields.timeline !== undefined) { setClauses.push(`timeline = $${idx++}`); values.push(fields.timeline || "Not set"); }
-    if (fields.stage !== undefined) { setClauses.push(`stage = $${idx++}`); values.push(fields.stage); }
+    if (!isCustomerSelf) {
+      // Jewellers can update all project fields
+      if (fields.projectName !== undefined) { setClauses.push(`project_name = $${idx++}`); values.push(fields.projectName); }
+      if (fields.budget !== undefined) { setClauses.push(`budget = $${idx++}`); values.push(fields.budget || "Not set"); }
+      if (fields.metalPreference !== undefined) { setClauses.push(`metal_preference = $${idx++}`); values.push(fields.metalPreference || "Not set"); }
+      if (fields.gemstonePreference !== undefined) { setClauses.push(`gemstone_preference = $${idx++}`); values.push(fields.gemstonePreference || "Not set"); }
+      if (fields.ringSize !== undefined) { setClauses.push(`ring_size = $${idx++}`); values.push(fields.ringSize || "Not set"); }
+      if (fields.timeline !== undefined) { setClauses.push(`timeline = $${idx++}`); values.push(fields.timeline || "Not set"); }
+      if (fields.stage !== undefined) { setClauses.push(`stage = $${idx++}`); values.push(fields.stage); }
+      if (fields.status !== undefined) { setClauses.push(`status = $${idx++}`); values.push(fields.status); }
+    }
+    // Both jewellers and customers can update contact info
     if (fields.fullName !== undefined) { setClauses.push(`full_name = $${idx++}`); values.push(fields.fullName); }
     if (fields.email !== undefined) { setClauses.push(`email = $${idx++}`); values.push(fields.email); }
     if (fields.phone !== undefined) { setClauses.push(`phone = $${idx++}`); values.push(fields.phone); }
-    if (fields.status !== undefined) { setClauses.push(`status = $${idx++}`); values.push(fields.status); }
 
     setClauses.push(`updated_at = now()`);
 
-    values.push(req.params.id, userId);
+    // Customers can only update their own project; jewellers check by ownership
+    const whereClause = isCustomerSelf
+      ? `where id = $${idx}`
+      : `where id = $${idx++} and jeweller_user_id = $${idx}`;
+    values.push(req.params.id);
+    if (!isCustomerSelf) values.push(jewellerId);
 
     const { rows } = await pool.query(
-      `update bb_customer_workspaces set ${setClauses.join(", ")} where id = $${idx++} and jeweller_user_id = $${idx} returning *`,
+      `update bb_customer_workspaces set ${setClauses.join(", ")} ${whereClause} returning *`,
       values,
     );
 
     if (!rows[0]) {
       res.status(404).json({ error: "Customer workspace not found" });
       return;
+    }
+
+    // Keep session name in sync when customer updates their own name
+    if (isCustomerSelf && fields.fullName) {
+      req.session.customerName = fields.fullName;
     }
 
     res.json({ customer: toProject(rows[0]) });
@@ -352,6 +373,37 @@ router.post("/auth/customer-code", async (req, res): Promise<void> => {
   } catch (err) {
     console.error("Customer code login error:", err);
     res.status(500).json({ error: "Code login failed" });
+  }
+});
+
+router.patch("/portal/intake-dna", async (req, res): Promise<void> => {
+  try {
+    await ensureCustomerTables();
+    const projectId = req.session.customerProjectId || req.body?.projectId;
+    if (!projectId) {
+      res.status(400).json({ error: "No project in session" });
+      return;
+    }
+    const dna = req.body?.intakeDNA;
+    if (!dna || typeof dna !== "object") {
+      res.status(400).json({ error: "intakeDNA required" });
+      return;
+    }
+    const { rows } = await pool.query(
+      `update bb_customer_workspaces
+       set intake_dna = $1, updated_at = now()
+       where id = $2
+       returning id`,
+      [JSON.stringify(dna), projectId],
+    );
+    if (!rows[0]) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Save intake DNA error:", err);
+    res.status(500).json({ error: "Failed to save brief" });
   }
 });
 

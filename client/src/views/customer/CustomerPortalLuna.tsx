@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Conversation, type Conversation as ElevenConversation } from '@elevenlabs/client'
-import { Mic, MicOff, Send, Sparkles, X } from 'lucide-react'
+import { ArrowRight, Mic, MicOff, Send, Sparkles, X } from 'lucide-react'
+import { useLocation } from 'wouter'
 import { useApp } from '../../context/AppContext'
 import LunaPulseOrb from '../../components/LunaPulseOrb'
-import { useProjects } from '../../context/ProjectContext'
+import { useProjects, type IntakeDNA } from '../../context/ProjectContext'
 
 interface Message { role: 'user' | 'assistant'; content: string; ts?: number }
 
@@ -17,27 +18,88 @@ const SUGGESTIONS = [
   'Anniversary band ideas',
 ]
 
+/** Extract structured IntakeDNA from a raw conversation transcript */
+function extractIntakeDNA(messages: Message[], customerName: string): IntakeDNA {
+  const userLines = messages.filter(m => m.role === 'user').map(m => m.content)
+  const combined = userLines.join(' ').toLowerCase()
+
+  const notes = userLines.join('. ').trim()
+
+  const occasion =
+    /anniversary/.test(combined) ? 'Anniversary' :
+    /engagement|propose|proposal/.test(combined) ? 'Engagement' :
+    /wedding/.test(combined) ? 'Wedding' :
+    /birthday/.test(combined) ? 'Birthday' :
+    /gift/.test(combined) ? 'Gift' : undefined
+
+  const style =
+    /vintage|antique/.test(combined) ? 'Vintage' :
+    /modern|contemporary|minimal/.test(combined) ? 'Modern' :
+    /bold|statement/.test(combined) ? 'Statement' :
+    /timeless|classic/.test(combined) ? 'Classic' : undefined
+
+  const stone =
+    /diamond/.test(combined) ? 'Diamond' :
+    /sapphire/.test(combined) ? 'Sapphire' :
+    /emerald/.test(combined) ? 'Emerald' :
+    /ruby/.test(combined) ? 'Ruby' :
+    /pearl/.test(combined) ? 'Pearl' :
+    /opal/.test(combined) ? 'Opal' : undefined
+
+  const metal =
+    /yellow gold/.test(combined) ? 'Yellow Gold' :
+    /rose gold/.test(combined) ? 'Rose Gold' :
+    /white gold/.test(combined) ? 'White Gold' :
+    /platinum/.test(combined) ? 'Platinum' :
+    /silver/.test(combined) ? 'Silver' : undefined
+
+  return {
+    customer: customerName,
+    occasion,
+    style,
+    stone,
+    metal,
+    notes,
+    capturedAt: new Date().toISOString(),
+  }
+}
+
 export default function CustomerPortalLuna() {
   const { showToast } = useApp()
-  const { portalProject } = useProjects()
+  const { portalProject, saveLunaBrief } = useProjects()
+  const [, navigate] = useLocation()
   const [state, setState] = useState<LunaState>('idle')
   const [transcript, setTranscript] = useState<Message[]>([])
   const [draft, setDraft] = useState('')
   const [chatOpen, setChatOpen] = useState(false)
   const [lastLunaError, setLastLunaError] = useState('')
   const [isMicError, setIsMicError] = useState(false)
+  const [handingOff, setHandingOff] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const conversationRef = useRef<ElevenConversation | null>(null)
   const manualEndingRef = useRef(false)
   const connectedAtRef = useRef(0)
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimerRef = useRef<number | null>(null)
+  const prefetchedSignedUrlRef = useRef<string | null>(null)
   const customerName = portalProject?.customer.name || 'there'
   const firstName = customerName.split(' ')[0] || 'there'
   const rawProjectName = portalProject?.name || 'your jewellery piece'
   const projectName = rawProjectName.includes(' - ') ? rawProjectName.split(' - ').slice(1).join(' - ') : rawProjectName
 
   useEffect(() => { if (ref.current) ref.current.scrollTop = ref.current.scrollHeight }, [transcript])
+
+  // Pre-fetch signed URL on mount so it's ready when the user taps
+  useEffect(() => {
+    fetch('/api/voice/signed-url', { cache: 'no-store' })
+      .then(r => r.json())
+      .then((data: { signedUrl?: string }) => {
+        if (typeof data.signedUrl === 'string' && data.signedUrl) {
+          prefetchedSignedUrlRef.current = data.signedUrl
+        }
+      })
+      .catch(() => { /* best-effort pre-fetch, ignore errors */ })
+  }, [])
 
   useEffect(() => () => {
     const activeConversation = conversationRef.current
@@ -94,7 +156,14 @@ export default function CustomerPortalLuna() {
   const endSession = () => {
     setState('idle')
     setChatOpen(false)
-    showToast('Conversation saved', 'success')
+    if (transcript.length > 1) {
+      const dna = extractIntakeDNA(transcript, firstName)
+      void saveLunaBrief(dna)
+      showToast('Brief captured — opening Magic Moodboard…', 'success')
+      setTimeout(() => navigate('/portal/magic-movement'), 800)
+    } else {
+      showToast('Conversation saved', 'success')
+    }
   }
 
   const startLiveSession = async (isRetry = false) => {
@@ -217,9 +286,40 @@ export default function CustomerPortalLuna() {
     const callbacks = createLunaCallbacks()
     const dynamicVariables = lunaDynamicVariables()
 
+    // Use pre-fetched signed URL if available, otherwise fetch now
+    let signedUrl: string | null = prefetchedSignedUrlRef.current
+    prefetchedSignedUrlRef.current = null // consume it
+    let signedFailure = 'Signed URL request failed'
+
+    if (!signedUrl) {
+      const signedUrlResponse = await fetch('/api/voice/signed-url', { cache: 'no-store' })
+      const signedUrlData = (await signedUrlResponse.json().catch(() => ({}))) as { signedUrl?: unknown; error?: string }
+      signedFailure = signedUrlData.error || signedFailure
+      if (signedUrlResponse.ok && typeof signedUrlData.signedUrl === 'string' && signedUrlData.signedUrl) {
+        signedUrl = signedUrlData.signedUrl
+      }
+    }
+
+    if (signedUrl) {
+      try {
+        return await Conversation.startSession({
+          signedUrl,
+          connectionType: 'websocket',
+          textOnly: false,
+          useWakeLock: false,
+          dynamicVariables,
+          connectionDelay: { default: 50 },
+          ...callbacks,
+        })
+      } catch (error) {
+        signedFailure = error instanceof Error ? error.message : String(error)
+        console.warn('Luna WebSocket startup failed, trying WebRTC', error)
+      }
+    }
+
+    // Fall back to WebRTC only if WebSocket cannot start.
     const tokenResponse = await fetch('/api/voice/conversation-token', { cache: 'no-store' })
     const tokenData = (await tokenResponse.json().catch(() => ({}))) as { token?: unknown; error?: string }
-    let tokenFailure = tokenData.error || 'Token request failed'
 
     if (tokenResponse.ok && typeof tokenData.token === 'string' && tokenData.token) {
       try {
@@ -229,61 +329,43 @@ export default function CustomerPortalLuna() {
           textOnly: false,
           useWakeLock: false,
           dynamicVariables,
-          connectionDelay: { default: 250 },
+          connectionDelay: { default: 50 },
           ...callbacks,
         })
       } catch (error) {
-        tokenFailure = error instanceof Error ? error.message : String(error)
-        console.warn('Luna WebRTC startup failed, trying signed URL', error)
+        const tokenFailure = error instanceof Error ? error.message : String(error)
+        throw new Error(`Voice connection failed: ${tokenFailure || signedFailure}`)
       }
     }
 
-    console.warn('Luna WebRTC token startup unavailable, falling back to signed URL', tokenData.error)
-    const signedUrlResponse = await fetch('/api/voice/signed-url', { cache: 'no-store' })
-    const signedUrlData = (await signedUrlResponse.json().catch(() => ({}))) as { signedUrl?: unknown; error?: string }
-
-    if (!signedUrlResponse.ok || typeof signedUrlData.signedUrl !== 'string' || !signedUrlData.signedUrl) {
-      throw new Error(signedUrlData.error || tokenData.error || 'Unable to start Luna')
-    }
-
-    try {
-      return await Conversation.startSession({
-        signedUrl: signedUrlData.signedUrl,
-        connectionType: 'websocket',
-        textOnly: false,
-        useWakeLock: false,
-        dynamicVariables,
-        connectionDelay: { default: 250 },
-        ...callbacks,
-      })
-    } catch (error) {
-      const signedFailure = error instanceof Error ? error.message : String(error)
-      throw new Error(`Voice connection failed: ${signedFailure || tokenFailure}`)
-    }
+    throw new Error(tokenData.error || signedFailure || 'Unable to start Luna')
   }
 
   // WebSocket fallback — voice mode (textOnly: false so the agent actually speaks)
-  const startElevenLabsWsSession = async () => {
+  const startElevenLabsWsSession = async (cachedSignedUrl?: string) => {
     const callbacks = createLunaCallbacks()
     const dynamicVariables = lunaDynamicVariables()
 
     setState('thinking')
     setChatOpen(true)
 
-    const signedUrlResponse = await fetch('/api/voice/signed-url', { cache: 'no-store' })
-    const signedUrlData = (await signedUrlResponse.json().catch(() => ({}))) as { signedUrl?: unknown; error?: string }
-
-    if (!signedUrlResponse.ok || typeof signedUrlData.signedUrl !== 'string' || !signedUrlData.signedUrl) {
-      throw new Error(signedUrlData.error || 'Unable to start Luna')
+    let signedUrl = cachedSignedUrl
+    if (!signedUrl) {
+      const signedUrlResponse = await fetch('/api/voice/signed-url', { cache: 'no-store' })
+      const signedUrlData = (await signedUrlResponse.json().catch(() => ({}))) as { signedUrl?: unknown; error?: string }
+      if (!signedUrlResponse.ok || typeof signedUrlData.signedUrl !== 'string' || !signedUrlData.signedUrl) {
+        throw new Error(signedUrlData.error || 'Unable to start Luna')
+      }
+      signedUrl = signedUrlData.signedUrl
     }
 
     return await Conversation.startSession({
-      signedUrl: signedUrlData.signedUrl,
+      signedUrl,
       connectionType: 'websocket',
       textOnly: false,         // must be false — agent is configured for voice
       useWakeLock: false,
       dynamicVariables,
-      connectionDelay: { default: 150 },
+      connectionDelay: { default: 50 },
       ...callbacks,
     })
   }
@@ -312,6 +394,7 @@ export default function CustomerPortalLuna() {
 
   const endLiveSession = async () => {
     const conversation = conversationRef.current
+    const capturedTranscript = transcript  // snapshot before state clears
     manualEndingRef.current = true
     reconnectAttemptsRef.current = 0
     if (reconnectTimerRef.current) {
@@ -324,11 +407,30 @@ export default function CustomerPortalLuna() {
 
     try {
       if (conversation) await conversation.endSession()
-      showToast('Conversation saved', 'success')
     } catch (error) {
       console.error('Unable to end Luna session', error)
-      showToast('Conversation ended locally', 'success')
     }
+
+    // Extract brief and hand off to Magic Moodboard
+    if (capturedTranscript.length > 1) {
+      const dna = extractIntakeDNA(capturedTranscript, firstName)
+      void saveLunaBrief(dna)
+      setHandingOff(true)
+      showToast('Brief captured — opening Magic Moodboard…', 'success')
+      setTimeout(() => navigate('/portal/magic-movement'), 1800)
+    } else {
+      showToast('Conversation ended', 'success')
+    }
+
+    // Pre-fetch next signed URL in background
+    fetch('/api/voice/signed-url', { cache: 'no-store' })
+      .then(r => r.json())
+      .then((data: { signedUrl?: string }) => {
+        if (typeof data.signedUrl === 'string' && data.signedUrl) {
+          prefetchedSignedUrlRef.current = data.signedUrl
+        }
+      })
+      .catch(() => { /* best-effort */ })
   }
 
   return (
@@ -543,6 +645,92 @@ export default function CustomerPortalLuna() {
           </div>
         )}
       </motion.div>
+
+      {/* ── Handoff transition card ── */}
+      <AnimatePresence>
+        {handingOff && (
+          <motion.div
+            key="handoff"
+            initial={{ opacity: 0, scale: 0.92, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96 }}
+            transition={{ duration: 0.45, ease: [0.22, 0.9, 0.32, 1] }}
+            style={{
+              position: 'relative', zIndex: 2,
+              width: 'min(480px, 100%)',
+              borderRadius: 24,
+              background: 'rgba(255,255,255,0.95)',
+              backdropFilter: 'blur(24px)',
+              border: '1px solid var(--bb-line)',
+              boxShadow: '0 32px 80px rgba(51,39,35,0.18)',
+              padding: '28px 28px 24px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 16,
+              textAlign: 'center',
+            }}
+          >
+            <motion.div
+              animate={{ rotate: [0, 15, -15, 10, -10, 0] }}
+              transition={{ duration: 0.8, ease: 'easeInOut' }}
+              style={{
+                width: 64, height: 64, borderRadius: 18,
+                background: 'linear-gradient(135deg, rgba(207,95,145,0.15), rgba(199,166,106,0.1))',
+                border: '1px solid rgba(207,95,145,0.2)',
+                display: 'grid', placeItems: 'center',
+                color: 'var(--bb-rose)',
+              }}
+            >
+              <Sparkles size={28} />
+            </motion.div>
+
+            <div>
+              <strong style={{ fontSize: '1.05rem', color: 'var(--bb-ink)', display: 'block', marginBottom: 6 }}>
+                Brief captured!
+              </strong>
+              <p style={{ margin: 0, fontSize: '0.87rem', color: 'var(--bb-muted)', lineHeight: 1.6 }}>
+                Luna has noted your preferences. Taking you to the Magic Moodboard to generate your concepts…
+              </p>
+            </div>
+
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '10px 18px',
+              borderRadius: 999,
+              background: 'linear-gradient(135deg, var(--bb-coral), var(--bb-rose))',
+              color: '#fff',
+              fontSize: '0.85rem',
+              fontWeight: 700,
+            }}>
+              <motion.div
+                animate={{ x: [0, 4, 0] }}
+                transition={{ duration: 0.7, repeat: Infinity, ease: 'easeInOut' }}
+              >
+                <ArrowRight size={16} />
+              </motion.div>
+              Magic Moodboard
+            </div>
+
+            {/* Loading dots */}
+            <div style={{ display: 'flex', gap: 6 }}>
+              {[0, 1, 2].map(i => (
+                <motion.span
+                  key={i}
+                  animate={{ scale: [0.8, 1.2, 0.8], opacity: [0.4, 1, 0.4] }}
+                  transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.2 }}
+                  style={{
+                    width: 7, height: 7, borderRadius: '50%',
+                    background: 'var(--bb-rose)', display: 'inline-block',
+                  }}
+                />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Transcript drawer */}
       <AnimatePresence>

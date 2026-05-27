@@ -44,6 +44,7 @@ export interface IntakeDNA {
   budget?: string
   notes?: string
   capturedAt?: string
+  projectId?: string
 }
 
 export interface GalleryImage {
@@ -110,13 +111,17 @@ interface ProjectContextValue {
   setCadUnlocked: (id: string, unlocked: boolean) => Promise<void>
   intakeDNA: IntakeDNA | null
   setIntakeDNA: (d: IntakeDNA) => void
+  saveLunaBrief: (d: IntakeDNA) => Promise<void>
   aiGeneratedImages: GalleryImage[]
   aiGeneratedFolders: GalleryFolder[]
+  tryonFolders: GalleryFolder[]
   saveAiGeneratedImage: (image: Omit<GalleryImage, 'id' | 'createdAt' | 'source'>) => void
   saveAiGeneratedFolder: (folder: { name?: string; prompt?: string; images: Array<Omit<GalleryImage, 'id' | 'createdAt' | 'source'>> }) => Promise<void>
+  saveTryonFolder: (folder: { name?: string; prompt?: string; images: Array<Omit<GalleryImage, 'id' | 'createdAt' | 'source'>> }) => Promise<void>
   refreshGallery: () => Promise<void>
   renameAiGeneratedFolder: (id: string, name: string) => Promise<void>
   deleteAiGeneratedFolder: (id: string) => Promise<void>
+  deleteTryonFolder: (id: string) => Promise<void>
   pendingMagicReference: GalleryImage | null
   setPendingMagicReference: (image: GalleryImage | null) => void
   pendingEditResult: GalleryImage | null
@@ -153,6 +158,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [portalProject, setPortalProject] = useState<Project | null>(() => lsGet<Project>('portal-project'))
   const [intakeDNA, setIntakeDNAState] = useState<IntakeDNA | null>(null)
   const [aiGeneratedFolders, setAiGeneratedFolders] = useState<GalleryFolder[]>([])
+  const [tryonFolders, setTryonFolders] = useState<GalleryFolder[]>([])
   const [pendingMagicReference, setPendingMagicReference] = useState<GalleryImage | null>(null)
   const [pendingEditResult, setPendingEditResult] = useState<GalleryImage | null>(null)
   const [cadFiles, setCadFiles] = useState<CadFile[]>([])
@@ -200,9 +206,13 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       return null
     }
     const data = await res.json()
-    const project = data?.project as Project | undefined
+    const project = data?.project as (Project & { intakeDNA?: IntakeDNA }) | undefined
     setPortalProject(project || null)
-    if (project) lsSet('portal-project', project)
+    if (project) {
+      lsSet('portal-project', project)
+      // Restore IntakeDNA from DB on refresh
+      if (project.intakeDNA) setIntakeDNAState(project.intakeDNA)
+    }
     return project || null
   }, [])
   const applyProjectUpdate = (project: Project) => {
@@ -262,20 +272,48 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     await setFeatureAccess(id, 'cad', unlocked)
   }
   const setIntakeDNA = (d: IntakeDNA) => setIntakeDNAState(d)
+
+  const saveLunaBrief = async (d: IntakeDNA) => {
+    setIntakeDNAState(d)
+    const projectId = portalProject?.id
+    if (!projectId) return
+    await fetch('/api/portal/intake-dna', {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ intakeDNA: d, projectId }),
+    }).catch(() => { /* best-effort — state already set in memory */ })
+  }
+
   const refreshGallery = async () => {
-    const res = await fetch('/api/gallery/folders', { credentials: 'include' })
-    if (!res.ok) return
-    const data = await res.json()
-    const folders = Array.isArray(data?.folders) ? data.folders : []
-    const mapped = folders.map((folder: GalleryFolder) => ({
-      ...folder,
-      source: 'ai',
-      images: Array.isArray(folder.images)
-        ? folder.images.map((image: GalleryImage) => ({ ...image, source: 'ai' as const }))
-        : [],
-    }))
-    setAiGeneratedFolders(mapped)
-    void idbSet('gallery', mapped)
+    const [aiRes, tryonRes] = await Promise.all([
+      fetch('/api/gallery/folders', { credentials: 'include' }),
+      fetch('/api/gallery/folders?source=tryon', { credentials: 'include' }),
+    ])
+    if (aiRes.ok) {
+      const data = await aiRes.json()
+      const folders = Array.isArray(data?.folders) ? data.folders : []
+      const mapped = folders.map((folder: GalleryFolder) => ({
+        ...folder,
+        source: 'ai',
+        images: Array.isArray(folder.images)
+          ? folder.images.map((image: GalleryImage) => ({ ...image, source: 'ai' as const }))
+          : [],
+      }))
+      setAiGeneratedFolders(mapped)
+      void idbSet('gallery', mapped)
+    }
+    if (tryonRes.ok) {
+      const data = await tryonRes.json()
+      const folders = Array.isArray(data?.folders) ? data.folders : []
+      setTryonFolders(folders.map((folder: GalleryFolder) => ({
+        ...folder,
+        source: 'tryon' as const,
+        images: Array.isArray(folder.images)
+          ? folder.images.map((image: GalleryImage) => ({ ...image, source: 'ai' as const }))
+          : [],
+      })))
+    }
   }
   const saveAiGeneratedFolder = async (folder: { name?: string; prompt?: string; images: Array<Omit<GalleryImage, 'id' | 'createdAt' | 'source'>> }) => {
     const res = await fetch('/api/gallery/folders', {
@@ -294,6 +332,28 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       setAiGeneratedFolders(prev => [{
         ...data.folder,
         source: 'ai',
+        images: (data.folder.images || []).map((image: GalleryImage) => ({ ...image, source: 'ai' as const })),
+      }, ...prev])
+    }
+  }
+  const saveTryonFolder = async (folder: { name?: string; prompt?: string; images: Array<Omit<GalleryImage, 'id' | 'createdAt' | 'source'>> }) => {
+    const res = await fetch('/api/gallery/folders', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: folder.name || new Date().toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }),
+        prompt: folder.prompt || '',
+        source: 'tryon',
+        images: folder.images,
+      }),
+    })
+    if (!res.ok) throw new Error('Could not save try-on folder')
+    const data = await res.json()
+    if (data?.folder) {
+      setTryonFolders(prev => [{
+        ...data.folder,
+        source: 'tryon',
         images: (data.folder.images || []).map((image: GalleryImage) => ({ ...image, source: 'ai' as const })),
       }, ...prev])
     }
@@ -321,6 +381,15 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     })
     if (!res.ok) throw new Error('Could not delete folder')
     setAiGeneratedFolders(prev => prev.filter(folder => folder.id !== id))
+  }
+
+  const deleteTryonFolder = async (id: string) => {
+    const res = await fetch(`/api/gallery/folders/${id}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    })
+    if (!res.ok) throw new Error('Could not delete folder')
+    setTryonFolders(prev => prev.filter(folder => folder.id !== id))
   }
 
   const refreshCadFiles = useCallback(async (projectId?: string) => {
@@ -423,13 +492,17 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       setCadUnlocked,
       intakeDNA,
       setIntakeDNA,
+      saveLunaBrief,
       aiGeneratedImages,
       aiGeneratedFolders,
+      tryonFolders,
       saveAiGeneratedImage,
       saveAiGeneratedFolder,
+      saveTryonFolder,
       refreshGallery,
       renameAiGeneratedFolder,
       deleteAiGeneratedFolder,
+      deleteTryonFolder,
       pendingMagicReference,
       setPendingMagicReference,
       pendingEditResult,
