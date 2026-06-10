@@ -77,11 +77,34 @@ export default defineConfig({
       },
     },
   },
+  optimizeDeps: {
+    include: [
+      "@react-three/fiber",
+      "@react-three/drei",
+      "@react-three/postprocessing",
+      "postprocessing",
+      "three/examples/jsm/loaders/STLLoader.js",
+      "three/examples/jsm/loaders/OBJLoader.js",
+      "three/examples/jsm/loaders/GLTFLoader.js",
+      "three/examples/jsm/loaders/PLYLoader.js",
+      "three/examples/jsm/loaders/3MFLoader.js",
+      "three/examples/jsm/loaders/ColladaLoader.js",
+      "three/examples/jsm/loaders/FBXLoader.js",
+      "three/examples/jsm/loaders/TDSLoader.js",
+    ],
+  },
   server: {
     port,
     strictPort: true,
     host: "0.0.0.0",
     allowedHosts: true,
+    warmup: {
+      clientFiles: [
+        "./src/views/internal/Studio3D.tsx",
+        "./src/components/CadFileViewer.tsx",
+        "./src/views/customer/UserGallery.tsx",
+      ],
+    },
     proxy: {
       "/api": {
         target: apiProxyTarget,

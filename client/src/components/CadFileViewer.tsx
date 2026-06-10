@@ -1,6 +1,6 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Component, Suspense, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
 import { Canvas, useLoader } from '@react-three/fiber'
-import { Center, ContactShadows, Environment, OrbitControls, PerspectiveCamera } from '@react-three/drei'
+import { Center, ContactShadows, Environment, Html, OrbitControls, PerspectiveCamera } from '@react-three/drei'
 import { EffectComposer, Bloom, ToneMapping } from '@react-three/postprocessing'
 import { ToneMappingMode } from 'postprocessing'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
@@ -99,6 +99,131 @@ interface UploadedCadFile {
   extension: string
   url: string
   previewKind: PreviewKind
+}
+
+class CanvasModelErrorBoundary extends Component<
+  { children: ReactNode; resetKey: string },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  componentDidUpdate(prevProps: { resetKey: string }) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null })
+    }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('CAD model render failed', error, info)
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children
+
+    return (
+      <CanvasStatusLabel
+        title="Could not preview this model"
+        description={cleanCadLoadError(this.state.error)}
+      />
+    )
+  }
+}
+
+class ViewerRenderErrorBoundary extends Component<
+  { children: ReactNode; fileName?: string; resetKey: string },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  componentDidUpdate(prevProps: { resetKey: string }) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null })
+    }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('CAD viewer failed', error, info)
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children
+
+    return (
+      <div style={{ height: '100%', display: 'grid', placeItems: 'center', textAlign: 'center', padding: 28 }}>
+        <div style={{ maxWidth: 430 }}>
+          <div style={{
+            width: 64,
+            height: 64,
+            borderRadius: '50%',
+            display: 'grid',
+            placeItems: 'center',
+            margin: '0 auto 16px',
+            background: '#f5ede8',
+            color: 'var(--bb-rose)',
+          }}>
+            <FileArchive size={26} />
+          </div>
+          <h2 style={{ margin: '0 0 10px', color: 'var(--bb-ink)', fontFamily: 'var(--app-font-display)', fontWeight: 600 }}>
+            Viewer could not start
+          </h2>
+          <p style={{ margin: 0, color: 'var(--bb-muted)', lineHeight: 1.65 }}>
+            {this.props.fileName ? `${this.props.fileName} is saved, but the live preview failed in this browser.` : 'The CAD file is saved, but the live preview failed in this browser.'}
+          </p>
+        </div>
+      </div>
+    )
+  }
+}
+
+function cleanCadLoadError(error: Error) {
+  const message = error.message || String(error)
+  if (/failed to fetch|load|network|404|504/i.test(message)) {
+    return 'The model file could not be loaded. Try Reset view, or download the file and re-upload it.'
+  }
+  if (/json|parse|unexpected|invalid/i.test(message)) {
+    return 'The file exists, but this model format looks invalid or incomplete.'
+  }
+  return 'The file is saved, but the browser could not render its live 3D preview.'
+}
+
+function CanvasStatusLabel({ title, description }: { title: string; description: string }) {
+  return (
+    <Html center>
+      <div style={{
+        minWidth: 260,
+        maxWidth: 360,
+        padding: '16px 18px',
+        borderRadius: 14,
+        background: 'rgba(255,255,255,0.92)',
+        color: 'var(--bb-ink)',
+        textAlign: 'center',
+        boxShadow: '0 18px 45px rgba(0,0,0,0.22)',
+        border: '1px solid rgba(255,255,255,0.75)',
+      }}>
+        <div style={{
+          width: 30,
+          height: 30,
+          borderRadius: '50%',
+          border: '3px solid rgba(207,95,145,0.18)',
+          borderTopColor: 'var(--bb-rose)',
+          animation: title.startsWith('Loading') ? 'spin 0.9s linear infinite' : 'none',
+          margin: '0 auto 10px',
+        }} />
+        <strong style={{ display: 'block', marginBottom: 6 }}>{title}</strong>
+        <span style={{ display: 'block', color: 'var(--bb-muted)', fontSize: '0.8rem', lineHeight: 1.45 }}>
+          {description}
+        </span>
+      </div>
+    </Html>
+  )
 }
 
 const ACCEPTED_EXTENSIONS = [
@@ -290,18 +415,20 @@ function ViewerCanvas({ file }: { file: UploadedCadFile }) {
       {/* Studio HDRI */}
       <Environment preset="studio" environmentIntensity={1.0} />
 
-      <Suspense fallback={null}>
-        <Center>
-          <group rotation={[-Math.PI / 2, 0, 0]}>
-            <CadModel file={file} />
-          </group>
-        </Center>
-        {/* Soft contact shadow on the ground plane */}
-        <ContactShadows
-          position={[0, -3.2, 0]}
-          opacity={0.55} scale={22} blur={2.5} far={5}
-          color="#000000"
-        />
+      <Suspense fallback={<CanvasStatusLabel title="Loading 3D model" description="Preparing the live preview..." />}>
+        <CanvasModelErrorBoundary resetKey={`${file.previewKind}:${file.url}`}>
+          <Center>
+            <group rotation={[-Math.PI / 2, 0, 0]}>
+              <CadModel file={file} />
+            </group>
+          </Center>
+          {/* Soft contact shadow on the ground plane */}
+          <ContactShadows
+            position={[0, -3.2, 0]}
+            opacity={0.55} scale={22} blur={2.5} far={5}
+            color="#000000"
+          />
+        </CanvasModelErrorBoundary>
       </Suspense>
 
       <OrbitControls enableDamping dampingFactor={0.07} target={[0, 0, 0]} />
@@ -503,7 +630,9 @@ export default function CadFileViewer({ canDelete = true }: CadFileViewerProps) 
 
       {file?.previewKind && file.previewKind !== 'unsupported' ? (
         <div style={{ width: '100%', height: '100%' }}>
-          <ViewerCanvas key={viewKey} file={file} />
+          <ViewerRenderErrorBoundary resetKey={`${viewKey}:${file.previewKind}:${file.url}`} fileName={file.name}>
+            <ViewerCanvas key={viewKey} file={file} />
+          </ViewerRenderErrorBoundary>
         </div>
       ) : (
         <div style={{ height: '100%', display: 'grid', placeItems: 'center', textAlign: 'center', padding: mobile ? 20 : 28 }}>

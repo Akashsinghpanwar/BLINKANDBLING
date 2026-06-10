@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Component, lazy, Suspense, useEffect, useState, type ErrorInfo, type ReactNode } from 'react'
 import LayoutModeSelector from './components/LayoutModeSelector'
 import { hasChosenLayoutMode } from './hooks/useLayoutMode'
 import { Switch, Route, Redirect, Router as WouterRouter, useLocation } from 'wouter'
@@ -9,30 +9,30 @@ import InternalLayout from './layouts/InternalLayout'
 import CustomerPortalLayout from './layouts/CustomerPortalLayout'
 import { Lock } from 'lucide-react'
 
-import LandingPage from './views/LandingPage'
-import JewellerLogin from './views/auth/JewellerLogin'
-import JewellerSignup from './views/auth/JewellerSignup'
-import CustomerLogin from './views/auth/CustomerLogin'
-import CustomerSignup from './views/auth/CustomerSignup'
+const LandingPage = lazy(() => import('./views/LandingPage'))
+const JewellerLogin = lazy(() => import('./views/auth/JewellerLogin'))
+const JewellerSignup = lazy(() => import('./views/auth/JewellerSignup'))
+const CustomerLogin = lazy(() => import('./views/auth/CustomerLogin'))
+const CustomerSignup = lazy(() => import('./views/auth/CustomerSignup'))
 
-import VirtualTryOn from './views/internal/VirtualTryOn'
-import Dashboard from './views/internal/Dashboard'
-import Customers from './views/internal/Customers'
-import CustomerProfile from './views/internal/CustomerProfile'
-import VoiceIntake from './views/internal/VoiceIntake'
-import MagicMovement from './views/internal/MagicMovement'
-import Studio3D from './views/internal/Studio3D'
-import ManufacturabilityCheck from './views/internal/ManufacturabilityCheck'
-import ProjectTimeline from './views/internal/ProjectTimeline'
-import Vault from './views/internal/Vault'
-import Storefront from './views/internal/Storefront'
-import Settings from './views/internal/Settings'
+const VirtualTryOn = lazy(() => import('./views/internal/VirtualTryOn'))
+const Dashboard = lazy(() => import('./views/internal/Dashboard'))
+const Customers = lazy(() => import('./views/internal/Customers'))
+const CustomerProfile = lazy(() => import('./views/internal/CustomerProfile'))
+const VoiceIntake = lazy(() => import('./views/internal/VoiceIntake'))
+const MagicMovement = lazy(() => import('./views/internal/MagicMovement'))
+const Studio3D = lazy(() => import('./views/internal/Studio3D'))
+const ManufacturabilityCheck = lazy(() => import('./views/internal/ManufacturabilityCheck'))
+const ProjectTimeline = lazy(() => import('./views/internal/ProjectTimeline'))
+const Vault = lazy(() => import('./views/internal/Vault'))
+const Storefront = lazy(() => import('./views/internal/Storefront'))
+const Settings = lazy(() => import('./views/internal/Settings'))
 
-import CustomerDashboard from './views/customer/CustomerDashboard'
-import CustomerPortalLuna from './views/customer/CustomerPortalLuna'
-import CustomerTimeline from './views/customer/CustomerTimeline'
-import CustomerSettings from './views/customer/CustomerSettings'
-import UserGallery from './views/customer/UserGallery'
+const CustomerDashboard = lazy(() => import('./views/customer/CustomerDashboard'))
+const CustomerPortalLuna = lazy(() => import('./views/customer/CustomerPortalLuna'))
+const CustomerTimeline = lazy(() => import('./views/customer/CustomerTimeline'))
+const CustomerSettings = lazy(() => import('./views/customer/CustomerSettings'))
+const UserGallery = lazy(() => import('./views/customer/UserGallery'))
 import { getMe, type AuthUser } from './lib/auth'
 import BackgroundJobManager from './components/BackgroundJobManager'
 
@@ -136,6 +136,69 @@ function LockedCustomerFeature({ label }: { label: string }) {
   )
 }
 
+function PageLoading() {
+  return (
+    <div style={{
+      minHeight: '100vh',
+      display: 'grid',
+      placeItems: 'center',
+      padding: 24,
+      background: 'linear-gradient(180deg, #fffaf7, #f7eef5)',
+      color: 'var(--bb-muted)',
+    }}>
+      <div style={{ display: 'grid', gap: 14, justifyItems: 'center', textAlign: 'center' }}>
+        <div style={{
+          width: 38,
+          height: 38,
+          borderRadius: '50%',
+          border: '3px solid rgba(207,95,145,0.18)',
+          borderTopColor: 'var(--bb-rose)',
+          animation: 'spin 0.9s linear infinite',
+        }} />
+        <strong style={{ color: 'var(--bb-ink)' }}>Loading workspace...</strong>
+      </div>
+    </div>
+  )
+}
+
+class RouteErrorBoundary extends Component<
+  { children: ReactNode; resetKey: string },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  componentDidUpdate(prevProps: { resetKey: string }) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null })
+    }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('Route render failed', error, info)
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children
+
+    return (
+      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24 }}>
+        <div className="bb-card" style={{ maxWidth: 520, padding: 28, textAlign: 'center' }}>
+          <h1 style={{ margin: '0 0 10px', color: 'var(--bb-ink)', fontFamily: 'var(--app-font-display)', fontWeight: 600 }}>
+            This page did not load
+          </h1>
+          <p style={{ margin: 0, color: 'var(--bb-muted)', lineHeight: 1.6 }}>
+            Refresh the page. If it keeps happening, the browser may still have an old dev-server module cached.
+          </p>
+        </div>
+      </div>
+    )
+  }
+}
+
 function Router() {
   return (
     <Switch>
@@ -155,6 +218,18 @@ function Router() {
   )
 }
 
+function RoutedApp() {
+  const [location] = useLocation()
+
+  return (
+    <RouteErrorBoundary resetKey={location}>
+      <Suspense fallback={<PageLoading />}>
+        <Router />
+      </Suspense>
+    </RouteErrorBoundary>
+  )
+}
+
 function AppWarmup() {
   useEffect(() => {
     const controller = new AbortController()
@@ -170,16 +245,38 @@ function AppWarmup() {
   return null
 }
 
+function RouteChunkWarmup() {
+  useEffect(() => {
+    const warmRoutes = () => {
+      void import('./views/internal/Studio3D')
+      void import('./views/customer/UserGallery')
+      void import('./views/internal/Dashboard')
+      void import('./views/customer/CustomerDashboard')
+    }
+
+    if ('requestIdleCallback' in window) {
+      const idleId = window.requestIdleCallback(warmRoutes, { timeout: 2000 })
+      return () => window.cancelIdleCallback(idleId)
+    }
+
+    const timeoutId = globalThis.setTimeout(warmRoutes, 900)
+    return () => globalThis.clearTimeout(timeoutId)
+  }, [])
+
+  return null
+}
+
 export default function App() {
   const base = import.meta.env.BASE_URL.replace(/\/$/, '')
   const [showModeSelector, setShowModeSelector] = useState(() => !hasChosenLayoutMode())
   return (
     <AppProvider>
       <AppWarmup />
+      <RouteChunkWarmup />
       <ProjectProvider>
         <BackgroundJobManager />
         <WouterRouter base={base}>
-          <Router />
+          <RoutedApp />
         </WouterRouter>
         <ToastContainer />
       </ProjectProvider>
