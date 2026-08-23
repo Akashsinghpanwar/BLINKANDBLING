@@ -100,6 +100,7 @@ function PortalPage() {
     cad: true, // 3D viewer + generation always available to customers
     timeline: true,
     payments: true,
+    virtualTryOn: true,
     ...(portalProject?.featureAccess || {}),
   }
 
@@ -113,7 +114,7 @@ function PortalPage() {
     if (sub === 'timeline') return access.timeline ? <CustomerTimeline /> : <LockedCustomerFeature label="Timeline" />
     if (sub === 'settings') return <CustomerSettings />
     if (sub === 'payments') return <CustomerSettings />  // legacy redirect
-    if (sub === 'virtual-tryon') return <VirtualTryOn />
+    if (sub === 'virtual-tryon') return access.virtualTryOn ? <VirtualTryOn /> : <LockedCustomerFeature label="Virtual Try On" />
     return <CustomerDashboard />
   }
 

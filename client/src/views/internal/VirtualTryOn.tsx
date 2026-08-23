@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import {
   Camera, CheckCircle2, CircleDot, Diamond,
-  Download, Ear, Film, Gem, Link,
+  Download, Ear, Film, Gem, Images, Link,
   Loader2, PauseCircle, PlayCircle, RotateCcw,
   Sparkles, Upload, Watch, Wand2, X, ZoomIn,
 } from 'lucide-react'
@@ -199,8 +199,8 @@ function PhotoThumb({
             <div className="tryon2-thumb-empty-icon">
               <Camera size={22} />
             </div>
-            <strong>Upload photo</strong>
-            <span>Drag & drop or click</span>
+            <strong>Upload your photo</strong>
+            <span>Upload a photo of yourself (or the customer) to try jewellery on — drag &amp; drop or click</span>
           </div>
         )}
     </div>
@@ -290,12 +290,12 @@ function JewelleryPicker({
         </label>
       )}
 
-      {/* Gallery grid */}
+      {/* Gallery grid — full access to every saved design */}
       {allImages.length > 0 && (
         <div className="tryon2-gallery">
           <span className="tryon2-gallery-label">From gallery ({allImages.length})</span>
           <div className="tryon2-gallery-grid">
-            {allImages.slice(0, 12).map(img => (
+            {allImages.map(img => (
               <button
                 key={img.id}
                 type="button"
@@ -392,6 +392,10 @@ function FramePlayer({
  * ─────────────────────────────────────────── */
 export default function VirtualTryOn() {
   const { aiGeneratedFolders, saveTryonFolder } = useProjects()
+
+  // Full access to every saved image — customers can pick any photo from their gallery
+  const allGalleryImages: GalleryImage[] = aiGeneratedFolders.flatMap(f => f.images)
+  const [showPersonGallery, setShowPersonGallery] = useState(false)
 
   const [personPhoto, setPersonPhoto] = useState('')
   const [jewellery,   setJewellery  ] = useState('')
@@ -591,8 +595,8 @@ export default function VirtualTryOn() {
               {personPhoto ? <CheckCircle2 size={13} /> : '1'}
             </div>
             <div className="tryon2-step-label">
-              <span>Customer Photo</span>
-              <small>{personPhoto ? 'Photo added' : 'Upload a clear shot'}</small>
+              <span>Your Photo</span>
+              <small>{personPhoto ? 'Photo added' : 'Upload a clear photo of yourself to try it on'}</small>
             </div>
           </div>
           <div className="tryon2-thumb-wrap">
@@ -600,6 +604,54 @@ export default function VirtualTryOn() {
               photo={personPhoto}
               onPhoto={setPersonPhoto}
             />
+            {/* Pick a photo from the full gallery instead of uploading */}
+            {allGalleryImages.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowPersonGallery(v => !v)}
+                  style={{
+                    width: '100%', minHeight: 40, borderRadius: 10,
+                    border: '1.5px solid rgba(207,95,145,0.35)',
+                    background: showPersonGallery ? 'rgba(207,95,145,0.08)' : '#fff',
+                    color: 'var(--bb-rose)', fontWeight: 800, fontSize: '0.78rem',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <Images size={15} /> From my gallery ({allGalleryImages.length})
+                </button>
+                {showPersonGallery && (
+                  <div style={{
+                    marginTop: 8, padding: 10, borderRadius: 12,
+                    border: '1px solid var(--bb-line)', background: '#fff',
+                    maxHeight: 240, overflowY: 'auto',
+                  }}>
+                    <p style={{ margin: '0 0 8px', fontSize: '0.72rem', color: 'var(--bb-muted)' }}>
+                      Browse all your saved images — pick any photo to try jewellery on.
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(56px, 1fr))', gap: 6 }}>
+                      {allGalleryImages.map(img => (
+                        <button
+                          key={img.id}
+                          type="button"
+                          title={img.label}
+                          onClick={() => { setPersonPhoto(img.url); setShowPersonGallery(false) }}
+                          style={{
+                            width: '100%', aspectRatio: '1', padding: 0,
+                            borderRadius: 8, overflow: 'hidden',
+                            border: `2px solid ${personPhoto === img.url ? 'var(--bb-rose)' : 'transparent'}`,
+                            cursor: 'pointer', background: 'none',
+                          }}
+                        >
+                          <img src={img.url} alt={img.label} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="tryon2-divider" />
@@ -703,7 +755,7 @@ export default function VirtualTryOn() {
 
                   <div className="tryon2-steps-hint">
                     {[
-                      { n: '1', t: 'Upload photo', s: 'Clear face or hand shot', done: !!personPhoto },
+                      { n: '1', t: 'Upload your photo', s: 'A clear photo of yourself — or pick from your gallery', done: !!personPhoto },
                       { n: '2', t: 'Choose jewellery', s: 'From gallery or upload', done: !!jewellery },
                       { n: '3', t: 'Generate', s: 'AI places it naturally', done: false },
                     ].map(s => (

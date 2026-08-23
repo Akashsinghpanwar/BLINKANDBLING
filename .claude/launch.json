@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "bbready-server",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--enable-source-maps", "server/dist/index.mjs"],
+      "port": 5000
+    }
+  ]
+}

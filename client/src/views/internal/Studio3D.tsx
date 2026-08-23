@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Box, Eye, Sparkles } from 'lucide-react'
+import { useLocation } from 'wouter'
+import { ArrowLeft, Box, Eye, Pencil, Sparkles } from 'lucide-react'
 import { Toaster } from '../../components/ui/sonner'
 import { TooltipProvider } from '../../components/ui/tooltip'
 import CadFileViewer from '../../components/CadFileViewer'
@@ -15,6 +16,7 @@ interface Props {
 
 export default function Studio3D({ mode = 'jeweller' }: Props) {
   const { viewerCadFile } = useProjects()
+  const [, navigate] = useLocation()
   const isCustomer = mode === 'customer'
   const [tab, setTab] = useState<CadTab>('bbcad')
 
@@ -84,6 +86,24 @@ export default function Studio3D({ mode = 'jeweller' }: Props) {
               {isCustomer ? '3D Viewer' : 'CAD Viewer'}
             </button>
           </div>
+
+          {/* Back to 2D — customers can go back and refine their concept */}
+          {isCustomer && (
+            <button
+              onClick={() => navigate('/portal/magic-movement')}
+              title="Go back to your 2D design to make changes"
+              className="bb-lift"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 7,
+                minHeight: 36, padding: '8px 16px', borderRadius: 999,
+                background: '#fff', color: 'var(--bb-rose)',
+                border: '1px solid rgba(207,95,145,0.35)',
+                fontWeight: 800, fontSize: '0.82rem', cursor: 'pointer',
+              }}
+            >
+              <Pencil size={14} /> Edit 2D design
+            </button>
+          )}
         </div>
 
         <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>

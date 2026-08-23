@@ -20,7 +20,6 @@ import {
   Phone,
 } from 'lucide-react'
 import GradientHeadline from '../components/GradientHeadline'
-import LandingTree from '../components/LandingTree'
 import BlinkBlingLogo from '../components/BlinkBlingLogo'
 import PenWriteLogo from '../components/PenWriteLogo'
 import PillarSelector from '../components/PillarSelector'
@@ -618,12 +617,7 @@ export default function LandingPage() {
 
       {/* ── AI CAD Coming-Soon Note ─────────────────────────────────────────── */}
       <section style={{ padding: '0 clamp(24px, 5vw, 48px) 14px', position: 'relative', zIndex: 2 }}>
-        <div style={{ maxWidth: 1180, margin: '0 auto', display: 'flex', justifyContent: 'center', alignItems: 'flex-end', gap: 0 }}>
-          {/* Left tree */}
-          <div style={{ alignSelf: 'flex-end', marginRight: -18, marginBottom: -8, zIndex: 3 }}>
-            <LandingTree side="left" />
-          </div>
-
+        <div style={{ maxWidth: 1180, margin: '0 auto', display: 'flex', justifyContent: 'center' }}>
           <motion.div
             initial={{ opacity: 0, y: 22, rotate: -1.5 }}
             whileInView={{ opacity: 1, y: 0, rotate: -1.2 }}
@@ -752,11 +746,6 @@ export default function LandingPage() {
               </div>
             </div>
           </motion.div>
-
-          {/* Right tree */}
-          <div style={{ alignSelf: 'flex-end', marginLeft: -18, marginBottom: -8, zIndex: 3 }}>
-            <LandingTree side="right" />
-          </div>
         </div>
       </section>
 

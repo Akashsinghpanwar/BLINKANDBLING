@@ -77,13 +77,4 @@ export const PILLAR_TABS = [
     body: 'Keep renders, CAD references, notes, certificates, and signed-off concepts organized by project.',
     photo: photos.gemCloseup,
   },
-  {
-    id: 'storefront',
-    label: 'Storefront',
-    sub: 'the shop',
-    accent: '#e38d5a',
-    title: 'Client approval connects to payment.',
-    body: 'Share a polished portal where clients can review progress, approve milestones, and continue to checkout.',
-    photo: photos.diamondNeck,
-  },
 ] as const

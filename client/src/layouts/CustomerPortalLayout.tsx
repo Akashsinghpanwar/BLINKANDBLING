@@ -16,9 +16,9 @@ const navItems = [
   { name: 'Overview', path: '/portal', icon: LayoutDashboard, feature: 'overview' as const },
   { name: 'Luna', path: '/portal/luna', icon: Mic2, feature: 'luna' as const },
   { name: 'Designs', path: '/portal/magic-movement', icon: Sparkles, feature: 'designs' as const },
-  { name: 'User Gallery', path: '/portal/gallery', icon: Images, feature: 'gallery' as const },
   { name: '3D Preview', path: '/portal/3d-studio', icon: Box, feature: 'cad' as const },
   { name: 'Try On', path: '/portal/virtual-tryon', icon: Wand2, feature: 'designs' as const },
+  { name: 'User Gallery', path: '/portal/gallery', icon: Images, feature: 'gallery' as const },
 ]
 
 const bottomNavItems = [
@@ -45,6 +45,7 @@ export default function CustomerPortalLayout({ children }: Props) {
     cad: portalProject?.cadUnlocked ?? false,
     timeline: true,
     payments: true,
+    virtualTryOn: true,
     ...(portalProject?.featureAccess || {}),
   }
 
@@ -157,6 +158,7 @@ export default function CustomerPortalLayout({ children }: Props) {
                 <Link
                   key={item.path}
                   href={item.path}
+                  title={locked ? `${item.name} — locked by your jeweller` : item.name}
                   className="bb-portal-nav-link"
                   style={isCompact ? {
                     color: active ? 'var(--bb-rose)' : 'var(--bb-muted)',

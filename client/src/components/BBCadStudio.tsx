@@ -270,12 +270,25 @@ export default function BBCadStudio({ onOpenInViewer }: Props) {
     const baseName = imageFile?.name.replace(/\.[^.]+$/, '') || 'model'
     const name = `${baseName}_generated.glb`
     try {
+      // Download the GLB and convert to a data URL so it is stored permanently.
+      // The proxy URL (/api/cad/image-to-3d/result/:taskId) re-fetches from Meshy
+      // on every request; Meshy tasks expire, causing 404s when viewing from gallery.
+      const glbRes = await fetch(url)
+      if (!glbRes.ok) throw new Error('Could not download the generated 3D model')
+      const blob = await glbRes.blob()
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result as string)
+        reader.onerror = reject
+        reader.readAsDataURL(blob)
+      })
+
       const saved = await saveCadFile({
         name,
-        url,
+        url: dataUrl,
         extension: 'glb',
         mimeType: 'model/gltf-binary',
-        size: 0,
+        size: blob.size,
         source: 'generated-3d',
       })
       setViewerCadFile(saved)

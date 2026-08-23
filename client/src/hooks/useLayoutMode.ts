@@ -38,8 +38,11 @@ export function useIsMobileLayout() {
     return () => mql.removeEventListener('change', onChange)
   }, [])
 
+  // Structural layout MUST agree with the CSS breakpoint (920px) — the mobile
+  // styles are media-query driven, so a "Desktop" choice on a narrow screen
+  // would clash (desktop grid + fixed bottom bar = broken layout).
+  // The chosen mode can force mobile on wide screens, never desktop on narrow ones.
   if (mode === 'mobile') return true
-  if (mode === 'desktop') return false
   return screenMobile
 }
 

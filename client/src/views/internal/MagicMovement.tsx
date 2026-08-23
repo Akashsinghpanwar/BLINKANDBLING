@@ -1,13 +1,14 @@
 import { useState, useRef, useEffect, useCallback, type CSSProperties } from 'react'
+import { useLocation } from 'wouter'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  CircleDot, Crown, Download, Eraser, Flower2, Gem, ImagePlus,
+  CircleDot, Crown, Download, Eraser, Flower2, Gem, ImagePlus, Images,
   Pencil, RefreshCcw, Send, Sparkles, Star, Wand2, Watch, X, Check,
-  Timer, Heart, Link, Disc3, Diamond, Type,
+  Timer, Heart, Link, Disc3, Diamond, Type, Box,
 } from 'lucide-react'
 import { useAnnotationCanvas } from '../../hooks/useAnnotationCanvas'
 import { useApp } from '../../context/AppContext'
-import { useProjects } from '../../context/ProjectContext'
+import { useProjects, type GalleryImage } from '../../context/ProjectContext'
 import { photos } from '../../lib/photos'
 import { removeWhiteBackground } from '../../lib/removeBackground'
 import { useBackgroundJobs, type ImageGenJob } from '../../store/backgroundJobs'
@@ -51,11 +52,15 @@ function usableImageUrl(value: unknown): string | null {
 
 export default function MagicMovement() {
   const { showToast } = useApp()
+  const [location, setLocation] = useLocation()
+  const isCustomerPortal = location.startsWith('/portal')
   const {
     intakeDNA,
     saveAiGeneratedImage,
+    aiGeneratedImages,
     pendingMagicReference, setPendingMagicReference,
     pendingEditResult, setPendingEditResult,
+    setPending3DImageUrl,
   } = useProjects()
 
   const { addImageJob, removeJob, cancelAllImageJobs } = useBackgroundJobs()
@@ -89,6 +94,11 @@ export default function MagicMovement() {
   const fileRef = useRef<HTMLInputElement>(null)
   // Track which completed jobs we have already rendered to avoid double-display
   const displayedJobIdRef = useRef<string | null>(null)
+
+  // Gallery picker for reference images + finalize flow
+  const [showGalleryPicker, setShowGalleryPicker] = useState(false)
+  const [finalized2D, setFinalized2D] = useState(false)
+  const galleryImages = aiGeneratedImages
 
   /* ── Auto-fill from Luna intake ── */
   useEffect(() => {
@@ -408,7 +418,9 @@ export default function MagicMovement() {
           >
             {/* ── Category grid ── */}
             <div>
-              <label style={LABEL_STYLE}>Category</label>
+              <label style={{ ...LABEL_STYLE, fontSize: '0.78rem', color: 'var(--bb-ink)', fontWeight: 800 }}>
+                1 · What are we designing?
+              </label>
               <div className="bb-mm-category-grid" style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(4, 1fr)',
@@ -465,7 +477,9 @@ export default function MagicMovement() {
             <div style={{ flex: 1 }}>
               {/* Apply Luna — small chip above textarea */}
               <div className="bb-mm-prompt-toolbar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <label style={LABEL_STYLE}>Design prompt</label>
+                <label style={{ ...LABEL_STYLE, fontSize: '0.78rem', color: 'var(--bb-ink)', fontWeight: 800, marginBottom: 0 }}>
+                  2 · Describe your design
+                </label>
                 <button
                   onClick={applyLuna}
                   disabled={!hasLuna}
@@ -515,7 +529,9 @@ export default function MagicMovement() {
 
             {/* ── References ── */}
             <div>
-              <label style={LABEL_STYLE}>References</label>
+              <label style={{ ...LABEL_STYLE, fontSize: '0.78rem', color: 'var(--bb-ink)', fontWeight: 800 }}>
+                3 · Reference images
+              </label>
               <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleFileUpload} style={{ display: 'none' }} />
 
               {references.length > 0 && (
@@ -553,24 +569,91 @@ export default function MagicMovement() {
                 </div>
               )}
 
-              <button
-                onClick={() => fileRef.current?.click()}
-                data-testid="mm-upload-ref"
-                className="bb-mm-reference-button"
-                style={{
-                  width: '100%', minHeight: 54, borderRadius: 12,
-                  border: '1.5px dashed var(--bb-line)',
-                  background: 'rgba(255,255,255,0.55)',
-                  color: 'var(--bb-muted)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  gap: 7, cursor: 'pointer', fontSize: '0.74rem', fontWeight: 700,
-                  transition: 'border-color 0.18s ease, color 0.18s ease',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--bb-rose)'; e.currentTarget.style.color = 'var(--bb-rose)' }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--bb-line)'; e.currentTarget.style.color = 'var(--bb-muted)' }}
-              >
-                <ImagePlus size={16} /> Add reference image
-              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => fileRef.current?.click()}
+                  data-testid="mm-upload-ref"
+                  className="bb-mm-reference-button"
+                  style={{
+                    flex: 1, minHeight: 54, borderRadius: 12,
+                    border: '1.5px dashed var(--bb-line)',
+                    background: 'rgba(255,255,255,0.55)',
+                    color: 'var(--bb-muted)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    gap: 7, cursor: 'pointer', fontSize: '0.74rem', fontWeight: 700,
+                    transition: 'border-color 0.18s ease, color 0.18s ease',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--bb-rose)'; e.currentTarget.style.color = 'var(--bb-rose)' }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--bb-line)'; e.currentTarget.style.color = 'var(--bb-muted)' }}
+                >
+                  <ImagePlus size={16} /> Upload image
+                </button>
+                <button
+                  onClick={() => setShowGalleryPicker(v => !v)}
+                  data-testid="mm-gallery-ref"
+                  style={{
+                    flex: 1, minHeight: 54, borderRadius: 12,
+                    border: '1.5px solid rgba(207,95,145,0.35)',
+                    background: showGalleryPicker ? 'rgba(207,95,145,0.10)' : '#fff',
+                    color: 'var(--bb-rose)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    gap: 7, cursor: 'pointer', fontSize: '0.74rem', fontWeight: 700,
+                  }}
+                >
+                  <Images size={16} /> From gallery
+                </button>
+              </div>
+
+              {/* Gallery picker — pick any saved design as a reference */}
+              {showGalleryPicker && (
+                <div style={{
+                  marginTop: 8, padding: 10, borderRadius: 12,
+                  border: '1px solid var(--bb-line)', background: '#fff',
+                  maxHeight: 220, overflowY: 'auto',
+                }}>
+                  {galleryImages.length === 0 ? (
+                    <p style={{ margin: 0, fontSize: '0.74rem', color: 'var(--bb-muted)' }}>
+                      No gallery images yet — designs you generate will appear here.
+                    </p>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(56px, 1fr))', gap: 6 }}>
+                      {(galleryImages as GalleryImage[]).map(img => {
+                        const alreadyAdded = references.some(r => r.url === img.url)
+                        return (
+                          <button
+                            key={img.id}
+                            type="button"
+                            disabled={alreadyAdded}
+                            title={alreadyAdded ? 'Already added' : (img.label || 'Add as reference')}
+                            onClick={() => {
+                              setReferences(prev => prev.some(r => r.url === img.url) ? prev : [
+                                { id: `gallery_ref_${img.id}`, url: img.url, name: img.label || 'Gallery reference' },
+                                ...prev,
+                              ])
+                              showToast('Image added to references', 'success')
+                            }}
+                            style={{
+                              position: 'relative', width: '100%', aspectRatio: '1',
+                              objectFit: 'cover', borderRadius: 8, overflow: 'hidden',
+                              border: `2px solid ${alreadyAdded ? 'rgba(63,136,116,0.5)' : 'transparent'}`,
+                              opacity: alreadyAdded ? 0.45 : 1,
+                              cursor: alreadyAdded ? 'default' : 'pointer',
+                              padding: 0, background: 'none',
+                            }}
+                          >
+                            <img src={img.url} alt={img.label || ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            {alreadyAdded && (
+                              <span style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: '#3f8874' }}>
+                                <Check size={16} />
+                              </span>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* ── Action buttons ── */}
@@ -583,15 +666,18 @@ export default function MagicMovement() {
                 onClick={generate}
                 disabled={isGenerating}
                 className="bb-btn-primary bb-lift"
+                title="Generate your 2D concept sketch"
                 style={{
-                  flex: 1, padding: '13px 18px', justifyContent: 'center',
+                  flex: 1, padding: '15px 18px', justifyContent: 'center',
+                  fontSize: '0.95rem',
                   opacity: isGenerating ? 0.65 : 1,
                   cursor: isGenerating ? 'progress' : 'pointer',
+                  boxShadow: isGenerating ? undefined : '0 10px 26px rgba(207,95,145,0.35)',
                 }}
               >
-                <Sparkles size={16} />
+                <Sparkles size={17} />
                 {isGenerating ? (jobStatus === 'queued' ? 'Queued...' : 'Rendering...') : 'Generate concept'}
-                {!isGenerating && <Send size={13} style={{ marginLeft: 3 }} />}
+                {!isGenerating && <Send size={14} style={{ marginLeft: 3 }} />}
               </button>
             </div>
           </div>
@@ -727,6 +813,99 @@ export default function MagicMovement() {
                       <span style={ICON_LABEL}>Download</span>
                     </a>
                   </motion.div>
+
+                  {/* ── Next-step guidance ── */}
+                  <AnimatePresence>
+                    {!annotateMode && !finalized2D && (
+                      <motion.div
+                        key="next-step"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -6 }}
+                        transition={{ delay: 0.35, duration: 0.4 }}
+                        style={{
+                          marginTop: 18, padding: '14px 18px', borderRadius: 14,
+                          background: 'linear-gradient(135deg, rgba(63,136,116,0.08), rgba(207,95,145,0.08))',
+                          border: '1px solid rgba(207,95,145,0.22)',
+                          display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <div style={{ flex: '1 1 260px', textAlign: 'left' }}>
+                          <strong style={{ display: 'block', fontSize: '0.86rem', color: 'var(--bb-ink)', marginBottom: 3 }}>
+                            ✅ Your 2D concept is ready
+                          </strong>
+                          <span style={{ fontSize: '0.78rem', color: 'var(--bb-muted)', lineHeight: 1.5 }}>
+                            Annotate anything you'd like changed — or finalise the design to continue to 3D.
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => { setFinalized2D(true); showToast('Design finalised — continuing to 3D preview', 'success') }}
+                          className="bb-lift"
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 8,
+                            padding: '12px 20px', borderRadius: 999,
+                            background: 'linear-gradient(135deg, var(--bb-coral), var(--bb-rose) 55%, var(--bb-violet))',
+                            color: '#fff', fontWeight: 800, fontSize: '0.88rem',
+                            border: 0, cursor: 'pointer',
+                            boxShadow: '0 10px 26px rgba(207,95,145,0.35)',
+                          }}
+                        >
+                          <Check size={16} /> I'm happy with this design → Continue to 3D
+                        </button>
+                      </motion.div>
+                    )}
+                    {finalized2D && (
+                      <motion.div
+                        key="finalized"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.4 }}
+                        style={{
+                          marginTop: 18, padding: '16px 18px', borderRadius: 14,
+                          background: 'rgba(63,136,116,0.07)',
+                          border: '1px solid rgba(63,136,116,0.28)',
+                          display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <span style={{ fontSize: '0.84rem', color: '#2f7a62', fontWeight: 700 }}>
+                          🎉 Design finalised! Your next steps: generate the 3D model, then try it on virtually.
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPending3DImageUrl(displayUrl ?? generated.url)
+                            setLocation(isCustomerPortal ? '/portal/3d-studio' : '/workspace/3d-studio')
+                          }}
+                          className="bb-lift"
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 8,
+                            padding: '12px 20px', borderRadius: 999,
+                            background: 'linear-gradient(135deg, #3f8874, #2f9075)',
+                            color: '#fff', fontWeight: 800, fontSize: '0.88rem',
+                            border: 0, cursor: 'pointer',
+                            boxShadow: '0 10px 26px rgba(47,144,117,0.32)',
+                          }}
+                        >
+                          <Box size={16} /> Generate 3D model
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFinalized2D(false)}
+                          style={{
+                            padding: '10px 16px', borderRadius: 999,
+                            background: 'transparent', color: 'var(--bb-muted)',
+                            fontWeight: 700, fontSize: '0.8rem',
+                            border: '1px solid var(--bb-line)', cursor: 'pointer',
+                          }}
+                        >
+                          Keep editing in 2D
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
 
                   {/* Annotation editor */}
                   <AnimatePresence>
@@ -968,9 +1147,11 @@ function GeneratingState({
         {prompt || 'Composing prompt…'}
       </p>
       <div style={{
-        width: 260, maxWidth: '90%', margin: '0 auto',
-        height: 6, borderRadius: 999,
-        background: 'rgba(207,95,145,0.12)', overflow: 'hidden',
+        width: '100%', maxWidth: 420, margin: '0 auto',
+        height: 14, borderRadius: 999,
+        background: 'rgba(207,95,145,0.14)', overflow: 'hidden',
+        border: '1px solid rgba(207,95,145,0.25)',
+        boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.06)',
       }}>
         <motion.div
           animate={{ width: `${progress}%` }}
@@ -978,15 +1159,15 @@ function GeneratingState({
           style={{
             height: '100%',
             background: 'linear-gradient(90deg, var(--bb-coral), var(--bb-rose), var(--bb-violet))',
-            boxShadow: '0 0 10px rgba(207,95,145,0.45)',
+            boxShadow: '0 0 12px rgba(207,95,145,0.55)',
           }}
         />
       </div>
       <span style={{
-        display: 'block', marginTop: 8, color: 'var(--bb-muted)',
-        fontSize: '0.72rem', letterSpacing: '0.14em', textTransform: 'uppercase', fontWeight: 700,
+        display: 'block', marginTop: 10, color: '#a03470',
+        fontSize: '0.82rem', letterSpacing: '0.14em', textTransform: 'uppercase', fontWeight: 800,
       }}>
-        {Math.round(progress)}% / {minutes}:{seconds}
+        {Math.round(progress)}% · {minutes}:{seconds}
       </span>
     </motion.div>
   )

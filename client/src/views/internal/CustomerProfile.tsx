@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'wouter'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowLeft, BadgePoundSterling, Bot, Box, CalendarDays, CalendarPlus, CheckCircle2, Images, LayoutDashboard, Lock, Mail, MessageCircle, Pencil, Save, Sparkles, Unlock, X } from 'lucide-react'
+import { ArrowLeft, BadgePoundSterling, Bot, Box, CalendarDays, CalendarPlus, CheckCircle2, Images, LayoutDashboard, Lock, Mail, MessageCircle, Pencil, Save, Sparkles, Unlock, Wand2, X } from 'lucide-react'
 import { useProjects } from '../../context/ProjectContext'
 import { useApp } from '../../context/AppContext'
 import ProjectMessenger from '../../components/ProjectMessenger'
@@ -109,6 +109,16 @@ export default function CustomerProfile({ projectId }: Props) {
         soft: access.cad ? 'rgba(47,144,117,0.11)' : 'rgba(143,146,156,0.10)',
         locked: !access.cad,
       },
+      {
+        label: 'Virtual Try On',
+        feature: 'virtualTryOn' as const,
+        icon: Wand2,
+        status: access.virtualTryOn ? 'Try-on enabled' : 'Try-on locked',
+        description: 'Virtual try-on with customer photos',
+        accent: access.virtualTryOn ? '#b3578f' : '#8f929c',
+        soft: access.virtualTryOn ? 'rgba(179,87,143,0.11)' : 'rgba(143,146,156,0.10)',
+        locked: !access.virtualTryOn,
+      },
     ]
   }, [project])
 
@@ -203,7 +213,7 @@ export default function CustomerProfile({ projectId }: Props) {
               navigate('/portal')
             }}
           >
-            <MessageCircle size={16} /> Open portal
+            <MessageCircle size={16} /> Access customer portal
           </button>
         </div>
       </header>

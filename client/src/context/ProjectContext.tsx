@@ -26,7 +26,7 @@ export interface Project {
   accessCode?: string
 }
 
-export type FeatureKey = 'overview' | 'luna' | 'designs' | 'gallery' | 'cad' | 'timeline' | 'payments'
+export type FeatureKey = 'overview' | 'luna' | 'designs' | 'gallery' | 'cad' | 'timeline' | 'payments' | 'virtualTryOn'
 export type FeatureAccess = Record<FeatureKey, boolean>
 
 export interface Stage {
@@ -251,6 +251,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
           cad: project.cadUnlocked,
           timeline: true,
           payments: true,
+          virtualTryOn: true,
         }),
         [feature]: unlocked,
       },

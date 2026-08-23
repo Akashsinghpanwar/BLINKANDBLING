@@ -354,9 +354,9 @@ export default function UserGallery() {
     createdAt: new Date().toISOString(),
   })
 
-  const sendToMagicMovement = (image: GalleryTile, index: number) => {
+  const sendToMagicMovement = (image: GalleryTile, index = 0) => {
     setPendingMagicReference(toGalleryImage(image, index))
-    showToast('Sent to Magic Movement references', 'success')
+    showToast('Opening Magic Editor — chat with Luna to make changes', 'success')
     setLocation('/portal/magic-movement')
   }
 
@@ -839,39 +839,9 @@ export default function UserGallery() {
                 }}
               >
                 <img src={image.url} alt={image.label} loading="lazy" style={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', display: 'block' }} />
-                {/* Always-visible 3D badge */}
-                <button
-                  type="button"
-                  title="Generate 3D model from this image"
-                  onClick={e => { e.stopPropagation(); sendTo3DStudio(image) }}
-                  style={{
-                    position: 'absolute', bottom: 36, left: 8,
-                    display: 'inline-flex', alignItems: 'center', gap: 5,
-                    padding: '4px 9px', borderRadius: 999,
-                    border: '1.5px solid rgba(168,85,247,0.55)',
-                    background: 'rgba(168,85,247,0.13)',
-                    backdropFilter: 'blur(8px)',
-                    color: '#a855f7', fontWeight: 900, fontSize: '0.65rem',
-                    cursor: 'pointer', letterSpacing: '0.04em',
-                    boxShadow: '0 2px 10px rgba(168,85,247,0.18)',
-                  }}
-                >
-                  <Layers size={10} /> 3D
-                </button>
+                {/* Single clear action: Maximize. Editing happens in Magic Editor (Magic Movement). */}
                 <div className="bb-gallery-actions">
                   <button type="button" title="Maximize" onClick={() => setMaximizedImage(image)}><Maximize2 size={15} /></button>
-                  <button type="button" title="Send to Magic Movement" onClick={() => sendToMagicMovement(image, index)}><Send size={15} /></button>
-                  <button type="button" title="Send to CAD files" onClick={() => void sendToCad(image, index)}><Box size={15} /></button>
-                  {!image.url.startsWith('data:') && (
-                    <button
-                      type="button"
-                      title="Share on Pinterest"
-                      onClick={() => pinShare(image.url, image.label)}
-                      style={{ color: '#e60023' }}
-                    >
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12c0 5.084 3.163 9.426 7.627 11.174-.105-.949-.2-2.405.042-3.441.218-.937 1.407-5.965 1.407-5.965s-.359-.719-.359-1.782c0-1.668.967-2.914 2.171-2.914 1.023 0 1.518.769 1.518 1.69 0 1.029-.655 2.568-.994 3.995-.283 1.194.599 2.169 1.777 2.169 2.133 0 3.772-2.249 3.772-5.495 0-2.873-2.064-4.882-5.012-4.882-3.414 0-5.418 2.561-5.418 5.207 0 1.031.397 2.138.893 2.738a.36.36 0 0 1 .083.345l-.333 1.36c-.053.22-.174.267-.402.161-1.499-.698-2.436-2.889-2.436-4.649 0-3.785 2.75-7.262 7.929-7.262 4.163 0 7.398 2.967 7.398 6.931 0 4.136-2.607 7.464-6.227 7.464-1.216 0-2.359-.632-2.75-1.378l-.748 2.853c-.271 1.043-1.002 2.35-1.492 3.146C9.57 23.812 10.763 24 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0z"/></svg>
-                    </button>
-                  )}
                 </div>
                 <figcaption title={image.prompt} style={{ padding: '9px 10px', color: 'var(--bb-muted)', fontSize: '0.78rem', fontWeight: 700 }}>
                   {image.label}
@@ -928,31 +898,11 @@ export default function UserGallery() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <button
                   className="bb-icon-btn"
-                  onClick={() => { closeMaximized(); sendTo3DStudio(maximizedImage) }}
-                  title="Generate 3D model from this image"
-                  style={{ color: '#a855f7', borderColor: 'rgba(168,85,247,0.3)', background: 'rgba(168,85,247,0.08)' }}
-                >
-                  <Layers size={15} />
-                </button>
-                <button
-                  className="bb-icon-btn"
                   onClick={() => setIsPreviewExpanded(v => !v)}
                   title={isPreviewExpanded ? 'Restore size' : 'Maximize editor'}
                   aria-label={isPreviewExpanded ? 'Restore editor size' : 'Maximize editor'}
                 >
                   {isPreviewExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-                </button>
-                <button
-                  className="bb-icon-btn"
-                  onClick={() => setAnnotateMode(m => !m)}
-                  title={annotateMode ? 'Exit sketch mode' : 'Sketch & AI edit'}
-                  style={annotateMode ? {
-                    color: 'var(--bb-rose)',
-                    background: 'rgba(207,95,145,0.1)',
-                    borderColor: 'rgba(207,95,145,0.35)',
-                  } : {}}
-                >
-                  <Pencil size={15} />
                 </button>
                 <button className="bb-icon-btn" onClick={closeMaximized} aria-label="Close">
                   <X size={16} />
@@ -1171,43 +1121,49 @@ export default function UserGallery() {
                 </div>
               )}
 
-              {/* ── 3D Generation quick-action bar ── */}
+              {/* ── Clear next-step actions ── */}
               {!annotateMode && (
                 <div style={{
-                  padding: '12px 18px',
+                  padding: '14px 18px',
                   borderTop: '1px solid var(--bb-line)',
                   background: 'rgba(250,246,255,0.9)',
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  gap: 12, flexShrink: 0,
+                  gap: 12, flexShrink: 0, flexWrap: 'wrap',
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{
-                      width: 32, height: 32, borderRadius: 9,
-                      background: 'linear-gradient(135deg,rgba(168,85,247,0.15),rgba(236,72,153,0.10))',
-                      display: 'grid', placeItems: 'center',
-                      border: '1px solid rgba(168,85,247,0.25)',
-                    }}>
-                      <Layers size={15} style={{ color: '#a855f7' }} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--bb-ink)' }}>Convert to 3D model</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--bb-muted)' }}>AI generates a GLB mesh from this image</div>
+                  <div>
+                    <div style={{ fontSize: '0.84rem', fontWeight: 800, color: 'var(--bb-ink)' }}>What would you like to do with this design?</div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--bb-muted)', marginTop: 2 }}>
+                      Open it in the Magic Editor to chat with Luna and make changes — or continue straight to 3D.
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => { closeMaximized(); sendTo3DStudio(maximizedImage) }}
-                    style={{
-                      minHeight: 36, padding: '8px 16px', borderRadius: 10,
-                      border: '1.5px solid rgba(168,85,247,0.4)',
-                      background: 'linear-gradient(135deg,rgba(168,85,247,0.12),rgba(236,72,153,0.08))',
-                      color: '#a855f7', fontWeight: 900, fontSize: '0.82rem',
-                      display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <Layers size={14} /> Generate 3D
-                  </button>
+                  <div style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
+                    <button
+                      type="button"
+                      onClick={() => { closeMaximized(); sendToMagicMovement(maximizedImage) }}
+                      style={{
+                        minHeight: 40, padding: '9px 18px', borderRadius: 999,
+                        border: '1.5px solid rgba(207,95,145,0.4)',
+                        background: 'linear-gradient(135deg, var(--bb-coral), var(--bb-rose) 55%, var(--bb-violet))',
+                        color: '#fff', fontWeight: 900, fontSize: '0.82rem',
+                        display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer',
+                      }}
+                    >
+                      <Sparkles size={14} /> Magic Editor
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { closeMaximized(); sendTo3DStudio(maximizedImage) }}
+                      style={{
+                        minHeight: 40, padding: '9px 18px', borderRadius: 999,
+                        border: '1.5px solid rgba(168,85,247,0.4)',
+                        background: 'linear-gradient(135deg,rgba(168,85,247,0.12),rgba(236,72,153,0.08))',
+                        color: '#a855f7', fontWeight: 900, fontSize: '0.82rem',
+                        display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer',
+                      }}
+                    >
+                      <Layers size={14} /> Generate 3D
+                    </button>
+                  </div>
                 </div>
               )}
 
