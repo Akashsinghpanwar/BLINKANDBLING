@@ -32,14 +32,6 @@ const NAV_LINKS = [
   { label: 'Pricing', href: '#pricing', icon: CreditCard, testId: 'pricing' },
 ]
 
-const TRUSTED_BY = [
-  'MAISON LIOR',
-  'STUDIO AURELIO',
-  'KAVAN & CO',
-  'ATELIER NOVA',
-  'HOUSE OF SOLENE',
-]
-
 const HERO_SKETCH_IMAGE = '/jewellery-sketch-floating.png'
 
 const RESULT_SHOWCASE_IMAGES = [
@@ -612,40 +604,6 @@ export default function LandingPage() {
               />
             </motion.div>
           </motion.div>
-        </div>
-      </section>
-
-      <section style={{ padding: '20px clamp(24px, 5vw, 48px) 50px', position: 'relative' }}>
-        <div style={{ maxWidth: 1180, margin: '0 auto', textAlign: 'center' }}>
-          <span className="bb-eyebrow" style={{ display: 'block', marginBottom: 20, color: 'var(--bb-muted)' }}>
-            Approved by independent jewellery studios
-          </span>
-          <div style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 'clamp(18px, 4vw, 52px)',
-            justifyContent: 'center',
-            alignItems: 'center',
-          }}>
-            {TRUSTED_BY.map((brand, i) => (
-              <motion.span
-                key={brand}
-                initial={{ opacity: 0, y: 10 }}
-                whileInView={{ opacity: 0.68, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: i * 0.06 }}
-                style={{
-                  fontFamily: 'var(--app-font-display)',
-                  fontWeight: 500,
-                  fontSize: '0.92rem',
-                  letterSpacing: '0.2em',
-                  color: 'var(--bb-text)',
-                }}
-              >
-                {brand}
-              </motion.span>
-            ))}
-          </div>
         </div>
       </section>
 
