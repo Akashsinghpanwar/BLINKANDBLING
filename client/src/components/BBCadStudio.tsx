@@ -169,9 +169,11 @@ export default function BBCadStudio({ onOpenInViewer }: Props) {
           for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i)
           blob = new Blob([arr], { type: mime })
         } else {
-          const res = await fetch(pending3DImageUrl)
+          const res = await fetch(pending3DImageUrl, { credentials: 'include', cache: 'no-store' })
+          if (!res.ok) throw new Error(`Gallery image request failed with ${res.status}`)
           blob = await res.blob()
         }
+        if (blob.size === 0) throw new Error('Gallery image was empty')
         if (cancelled) return
         const file = new File([blob], 'ai-design.png', { type: blob.type || 'image/png' })
         setPending3DImageUrl(null)
@@ -540,6 +542,35 @@ export default function BBCadStudio({ onOpenInViewer }: Props) {
           .bbcad-generator { grid-template-columns: 1fr; }
           .bbcad-side { border-right: 0; border-bottom: 1px solid var(--bb-line); }
           .bbcad-workspace { padding: 24px 18px; }
+        }
+        @media (max-width: 640px) {
+          .bbcad-generator {
+            min-height: 0;
+            border-radius: 14px;
+            box-shadow: 0 12px 34px rgba(40,32,30,0.1);
+          }
+          .bbcad-side {
+            padding: 18px 16px;
+            gap: 14px;
+          }
+          .bbcad-title { font-size: 1.3rem; }
+          .bbcad-copy { font-size: 0.8rem; }
+          .bbcad-drop { min-height: 150px; }
+          .bbcad-drop-empty { padding: 20px 16px; }
+          .bbcad-drop-icon {
+            width: 40px;
+            height: 40px;
+            margin-bottom: 9px;
+          }
+          .bbcad-workspace { min-height: 300px; padding: 22px 12px; }
+          .bbcad-state-icon {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 13px;
+          }
+          .bbcad-state h3 { font-size: 1.2rem; }
+          .bbcad-state p { font-size: 0.82rem; }
+          .bbcad-thumb { width: 100%; margin-bottom: 16px; }
         }
       `}</style>
 

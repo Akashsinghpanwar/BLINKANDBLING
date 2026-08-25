@@ -1,6 +1,6 @@
 import { Component, Suspense, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
 import { Canvas, useLoader } from '@react-three/fiber'
-import { Center, ContactShadows, Environment, Html, OrbitControls, PerspectiveCamera } from '@react-three/drei'
+import { Center, ContactShadows, Environment, Html, OrbitControls, PerspectiveCamera } from '@/lib/drei'
 import { EffectComposer, Bloom, ToneMapping } from '@react-three/postprocessing'
 import { ToneMappingMode } from 'postprocessing'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
@@ -91,7 +91,7 @@ import { Box, Download, FileArchive, FileText, Maximize2, Minimize2, RotateCcw, 
 import { useProjects, type CadFile } from '../context/ProjectContext'
 import { useApp } from '../context/AppContext'
 
-type PreviewKind = 'stl' | 'obj' | 'gltf' | 'ply' | '3mf' | 'dae' | 'fbx' | '3ds' | 'unsupported'
+type PreviewKind = 'stl' | 'obj' | 'gltf' | 'ply' | '3mf' | 'dae' | 'fbx' | '3ds' | 'image' | 'unsupported'
 
 interface UploadedCadFile {
   name: string
@@ -242,6 +242,7 @@ function getPreviewKind(extension: string): PreviewKind {
   if (extension === 'dae') return 'dae'
   if (extension === 'fbx') return 'fbx'
   if (extension === '3ds') return '3ds'
+  if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'].includes(extension)) return 'image'
   return 'unsupported'
 }
 
@@ -413,38 +414,32 @@ function ViewerCanvas({ file }: { file: UploadedCadFile }) {
       <ambientLight intensity={0.32} />
 
       {/* Studio HDRI */}
-      <Environment preset="studio" environmentIntensity={1.0} />
-
       <Suspense fallback={<CanvasStatusLabel title="Loading 3D model" description="Preparing the live preview..." />}>
         <CanvasModelErrorBoundary resetKey={`${file.previewKind}:${file.url}`}>
-          <Center>
-            <group rotation={[-Math.PI / 2, 0, 0]}>
-              <CadModel file={file} />
-            </group>
-          </Center>
+          <Environment preset="studio" environmentIntensity={1.0} />
+
+          <CadModel file={file} />
           {/* Soft contact shadow on the ground plane */}
           <ContactShadows
             position={[0, -3.2, 0]}
             opacity={0.55} scale={22} blur={2.5} far={5}
             color="#000000"
           />
+          <OrbitControls enableDamping dampingFactor={0.07} target={[0, 0, 0]} />
+
+          <EffectComposer>
+            <Bloom
+              intensity={0.18}
+              luminanceThreshold={0.90}
+              luminanceSmoothing={0.60}
+              mipmapBlur
+            />
+            <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+          </EffectComposer>
         </CanvasModelErrorBoundary>
       </Suspense>
 
-      <OrbitControls enableDamping dampingFactor={0.07} target={[0, 0, 0]} />
-
       {/* ── Post-processing ── */}
-      <EffectComposer>
-        {/* Bloom: subtle glow only on the very brightest highlights */}
-        <Bloom
-          intensity={0.18}
-          luminanceThreshold={0.90}
-          luminanceSmoothing={0.60}
-          mipmapBlur
-        />
-        {/* ACES Filmic: industry-standard photorealistic tone curve */}
-        <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-      </EffectComposer>
     </Canvas>
   )
 }
@@ -628,7 +623,15 @@ export default function CadFileViewer({ canDelete = true }: CadFileViewerProps) 
         </div>
       </div>
 
-      {file?.previewKind && file.previewKind !== 'unsupported' ? (
+      {file?.previewKind && file.previewKind === 'image' ? (
+        <div style={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center', padding: 24 }}>
+          <img
+            src={file.url}
+            alt={file.name}
+            style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 12, boxShadow: '0 18px 45px rgba(0,0,0,0.4)' }}
+          />
+        </div>
+      ) : file?.previewKind && file.previewKind !== 'unsupported' ? (
         <div style={{ width: '100%', height: '100%' }}>
           <ViewerRenderErrorBoundary resetKey={`${viewKey}:${file.previewKind}:${file.url}`} fileName={file.name}>
             <ViewerCanvas key={viewKey} file={file} />

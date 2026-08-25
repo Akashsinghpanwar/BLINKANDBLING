@@ -1,7 +1,7 @@
 import { useRef, forwardRef, useImperativeHandle, useMemo, useState } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
-import { Edges, MeshTransmissionMaterial } from "@react-three/drei";
+import { Edges, MeshTransmissionMaterial } from "@/lib/drei";
 import { useRecipeStore } from "@/store/recipe";
 import { useUIStore, type Section } from "@/store/ui";
 // editMode read inside component below

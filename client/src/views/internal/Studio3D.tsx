@@ -18,7 +18,10 @@ export default function Studio3D({ mode = 'jeweller' }: Props) {
   const { viewerCadFile } = useProjects()
   const [, navigate] = useLocation()
   const isCustomer = mode === 'customer'
-  const [tab, setTab] = useState<CadTab>('bbcad')
+  // Initialize directly from viewerCadFile — a pending file set by the gallery
+  // must open the viewer tab even though CadFileViewer consumes (nulls) the
+  // pending file in its own mount effect, which runs BEFORE this parent effect.
+  const [tab, setTab] = useState<CadTab>(() => (viewerCadFile ? 'viewer' : 'bbcad'))
 
   useEffect(() => {
     if (viewerCadFile) setTab('viewer')
@@ -35,8 +38,15 @@ export default function Studio3D({ mode = 'jeweller' }: Props) {
         padding: '16px 20px',
         boxSizing: 'border-box',
       }}>
+        <style>{`
+          @media (max-width: 640px) {
+            .studio3d-shell { height: auto !important; min-height: calc(100dvh - 78px); overflow: visible !important; padding: 10px 8px !important; }
+            .studio3d-content { overflow: visible !important; }
+            .studio3d-tabbar { flex-wrap: wrap !important; gap: 8px !important; }
+          }
+        `}</style>
         {/* Tab switcher */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexShrink: 0 }}>
+        <div className="studio3d-tabbar" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexShrink: 0 }}>
           <div style={{
             display: 'inline-flex', gap: 6, padding: 4, borderRadius: 12,
             border: '1px solid var(--bb-line)',
@@ -106,7 +116,7 @@ export default function Studio3D({ mode = 'jeweller' }: Props) {
           )}
         </div>
 
-        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        <div className="studio3d-content" style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
           {tab === 'bbcad'
             ? <BBCadStudio onOpenInViewer={() => setTab('viewer')} />
             : <CadFileViewer canDelete={!isCustomer} />

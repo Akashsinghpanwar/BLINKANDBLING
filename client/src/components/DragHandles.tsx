@@ -11,7 +11,7 @@
 import { useRef, useMemo, useCallback, useState } from "react";
 import * as THREE from "three";
 import { useThree, type ThreeEvent } from "@react-three/fiber";
-import { Html, Line, Billboard } from "@react-three/drei";
+import { Html, Line, Billboard } from "@/lib/drei";
 import { useRecipeStore, type ParametricRecipe } from "@/store/recipe";
 import { useUIStore } from "@/store/ui";
 

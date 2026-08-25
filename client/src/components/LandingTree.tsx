@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { Float } from '@react-three/drei'
+import { Float } from '@/lib/drei'
 import * as THREE from 'three'
 
 // ── Single pine tree made of stacked cones + cylinder trunk ──────────────────

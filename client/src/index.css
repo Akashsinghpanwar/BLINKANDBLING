@@ -1300,6 +1300,23 @@ h1.bb-display, h2.bb-display, h3.bb-display {
   overflow-wrap: anywhere;
 }
 
+/* Generate button must stay a compact pill — never collapse into a circle */
+.bb-mm-actions .bb-btn-primary {
+  white-space: nowrap !important;
+  flex-wrap: nowrap !important;
+  min-height: 42px !important;
+  height: auto !important;
+  aspect-ratio: auto !important;
+}
+
+@media (max-width: 480px) {
+  .bb-mm-actions .bb-btn-primary {
+    font-size: 0.8rem !important;
+    padding: 10px 12px !important;
+    letter-spacing: 0;
+  }
+}
+
 @media (max-width: 920px) {
   .bb-portal-sidebar nav {
     display: grid !important;
@@ -1447,8 +1464,9 @@ h1.bb-display, h2.bb-display, h3.bb-display {
 
   .bb-mm-actions .bb-btn-primary {
     min-width: 0 !important;
-    padding: 12px 14px !important;
-    font-size: 0.86rem !important;
+    padding: 10px 12px !important;
+    font-size: 0.8rem !important;
+    white-space: nowrap !important;
   }
 
   .bb-mm-result-actions {
@@ -1547,12 +1565,13 @@ h1.bb-display, h2.bb-display, h3.bb-display {
   }
 
   .bb-mm-actions {
-    flex-direction: column !important;
+    grid-template-columns: 1fr !important;
   }
 
   .bb-mm-actions .bb-btn-ghost,
   .bb-mm-actions .bb-btn-primary {
     width: 100% !important;
+    white-space: nowrap !important;
   }
 }
 

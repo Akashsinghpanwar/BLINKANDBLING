@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, forwardRef } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Environment, ContactShadows, PerspectiveCamera } from "@react-three/drei";
+import { OrbitControls, Environment, ContactShadows, PerspectiveCamera } from "@/lib/drei";
 import { ACESFilmicToneMapping } from "three";
 import { useRecipeStore } from "@/store/recipe";
 import { useUIStore, type ViewName } from "@/store/ui";

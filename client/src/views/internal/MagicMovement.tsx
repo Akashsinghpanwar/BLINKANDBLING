@@ -141,20 +141,22 @@ export default function MagicMovement() {
     showToast('Edited design loaded', 'success')
   }, [pendingEditResult])
 
-  /* ── Pending magic reference ── */
+  /* ── Pending image sent from gallery — load straight into generated canvas ── */
   useEffect(() => {
     if (!pendingMagicReference) return
-    setReferences(prev => {
-      if (prev.some(r => r.url === pendingMagicReference.url)) return prev
-      return [{
-        id: `gallery_ref_${Date.now()}`,
-        url: pendingMagicReference.url,
-        name: pendingMagicReference.label || 'Gallery reference',
-      }, ...prev]
-    })
+    const rendered: Render = {
+      id: `gallery_${Date.now()}`,
+      url: pendingMagicReference.url,
+      images: [{ angle: 'From gallery', url: pendingMagicReference.url }],
+      prompt: pendingMagicReference.prompt || '',
+      ts: Date.now(),
+    }
+    setGenerated(rendered)
+    setHistory(prev => [rendered, ...prev].slice(0, 8))
+    void removeWhiteBackground(rendered.url).then(transparent => setDisplayUrl(transparent))
     if (!prompt.trim() && pendingMagicReference.prompt) setPrompt(pendingMagicReference.prompt)
     setPendingMagicReference(null)
-    showToast('Image added to references', 'success')
+    showToast('Image loaded in Magic Editor', 'success')
   }, [pendingMagicReference])
 
   /* ── Progress animation ── */
@@ -406,7 +408,7 @@ export default function MagicMovement() {
         {/* ── Two-column grid ── */}
         <div
           className="bb-mm-workbench"
-          style={{ display: 'grid', gridTemplateColumns: '252px 1fr', gap: 14, alignItems: 'start' }}
+          style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr)', gap: 18, alignItems: 'start' }}
         >
 
           {/* ════════════════════════════════
@@ -657,8 +659,11 @@ export default function MagicMovement() {
             </div>
 
             {/* ── Action buttons ── */}
-            <div className="bb-mm-actions" style={{ display: 'flex', gap: 10, marginTop: 'auto' }}>
-              <button onClick={clearAll} className="bb-btn-ghost" style={{ padding: '11px 14px' }}>
+            <div
+              className="bb-mm-actions"
+              style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: 8, marginTop: 'auto' }}
+            >
+              <button onClick={clearAll} className="bb-btn-ghost" style={{ padding: '11px 12px', flexShrink: 0 }}>
                 <Eraser size={14} /> Clear
               </button>
               <button
@@ -668,16 +673,15 @@ export default function MagicMovement() {
                 className="bb-btn-primary bb-lift"
                 title="Generate your 2D concept sketch"
                 style={{
-                  flex: 1, padding: '15px 18px', justifyContent: 'center',
-                  fontSize: '0.95rem',
+                  width: '100%', minWidth: 0, padding: '11px 14px', justifyContent: 'center',
+                  fontSize: '0.84rem', whiteSpace: 'nowrap',
                   opacity: isGenerating ? 0.65 : 1,
                   cursor: isGenerating ? 'progress' : 'pointer',
                   boxShadow: isGenerating ? undefined : '0 10px 26px rgba(207,95,145,0.35)',
                 }}
               >
-                <Sparkles size={17} />
-                {isGenerating ? (jobStatus === 'queued' ? 'Queued...' : 'Rendering...') : 'Generate concept'}
-                {!isGenerating && <Send size={14} style={{ marginLeft: 3 }} />}
+                <Sparkles size={15} />
+                {isGenerating ? (jobStatus === 'queued' ? 'Queued…' : 'Rendering…') : 'Generate concept'}
               </button>
             </div>
           </div>

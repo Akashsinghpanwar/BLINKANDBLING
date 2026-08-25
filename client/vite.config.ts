@@ -80,7 +80,6 @@ export default defineConfig({
   optimizeDeps: {
     include: [
       "@react-three/fiber",
-      "@react-three/drei",
       "@react-three/postprocessing",
       "postprocessing",
       "three/examples/jsm/loaders/STLLoader.js",

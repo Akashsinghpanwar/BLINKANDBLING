@@ -213,7 +213,7 @@ async function ensureProfileColumns() {
       alter table bb_users
         add column if not exists studio varchar(200),
         add column if not exists phone varchar(80);
-    `).catch((err: unknown) => {
+    `).then(() => undefined).catch((err: unknown) => {
       profileColumnsReady = null;
       throw err;
     });

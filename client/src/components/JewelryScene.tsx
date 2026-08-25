@@ -1,7 +1,7 @@
 import { useRef, useMemo } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
-import { MeshTransmissionMaterial } from "@react-three/drei";
+import { MeshTransmissionMaterial } from "@/lib/drei";
 import { useRecipeStore } from "@/store/recipe";
 import { makeMetalMaterial } from "@/cad/metals";
 import { GEM_SPECS } from "@/cad/gems";

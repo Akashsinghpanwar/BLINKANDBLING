@@ -162,6 +162,21 @@ function PageLoading() {
   )
 }
 
+const ROUTE_RELOAD_KEY = 'bb-route-reload-attempted'
+const DEV_SW_RESET_KEY = 'bb-dev-sw-reset-done'
+const ROUTE_RELOAD_WINDOW_MS = 10_000
+const ROUTE_RELOAD_MAX_ATTEMPTS = 2
+
+function isLikelyStaleRouteModuleError(error: Error) {
+  const message = `${error.name || ''} ${error.message || ''}`.toLowerCase()
+  return (
+    message.includes('failed to fetch dynamically imported module') ||
+    message.includes('importing a module script failed') ||
+    message.includes('error loading dynamically imported module') ||
+    message.includes('old dev-server module')
+  )
+}
+
 class RouteErrorBoundary extends Component<
   { children: ReactNode; resetKey: string },
   { error: Error | null }
@@ -180,10 +195,40 @@ class RouteErrorBoundary extends Component<
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('Route render failed', error, info)
+
+    if (isLikelyStaleRouteModuleError(error)) {
+      try {
+        const now = Date.now()
+        const previous = JSON.parse(sessionStorage.getItem(ROUTE_RELOAD_KEY) || 'null') as
+          | { key?: string; at?: number; count?: number }
+          | null
+        const withinWindow = previous?.key === this.props.resetKey && now - (previous.at || 0) < ROUTE_RELOAD_WINDOW_MS
+        const count = withinWindow ? (previous?.count || 0) + 1 : 1
+
+        if (withinWindow && count > ROUTE_RELOAD_MAX_ATTEMPTS) return
+
+        sessionStorage.setItem(ROUTE_RELOAD_KEY, JSON.stringify({
+          key: this.props.resetKey,
+          at: now,
+          count,
+        }))
+        const browserCaches = globalThis.caches
+        if (browserCaches) {
+          void browserCaches.keys()
+            .then(keys => Promise.all(keys.map(key => browserCaches.delete(key))))
+            .finally(() => globalThis.location.reload())
+          return
+        }
+        globalThis.location.reload()
+      } catch {
+        globalThis.location.reload()
+      }
+    }
   }
 
   render() {
     if (!this.state.error) return this.props.children
+    const detail = `${this.state.error.name || 'Error'}: ${this.state.error.message || 'Unknown route error'}`
 
     return (
       <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24 }}>
@@ -194,6 +239,23 @@ class RouteErrorBoundary extends Component<
           <p style={{ margin: 0, color: 'var(--bb-muted)', lineHeight: 1.6 }}>
             Refresh the page. If it keeps happening, the browser may still have an old dev-server module cached.
           </p>
+          {import.meta.env.DEV && (
+            <pre style={{
+              margin: '18px 0 0',
+              padding: 12,
+              borderRadius: 10,
+              background: '#fff7f4',
+              border: '1px solid var(--bb-line)',
+              color: '#8f1d3f',
+              textAlign: 'left',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              fontSize: 12,
+              lineHeight: 1.45,
+            }}>
+              {detail}
+            </pre>
+          )}
         </div>
       </div>
     )
@@ -234,6 +296,29 @@ function RoutedApp() {
 function AppWarmup() {
   useEffect(() => {
     const controller = new AbortController()
+
+    if (import.meta.env.DEV && 'serviceWorker' in navigator) {
+      const resetDevServiceWorker = async () => {
+        try {
+          const registrations = await navigator.serviceWorker.getRegistrations()
+          if (registrations.length === 0) return
+          await Promise.all(registrations.map(registration => registration.unregister()))
+          if ('caches' in window) {
+            const keys = await window.caches.keys()
+            await Promise.all(keys.map(key => window.caches.delete(key)))
+          }
+          if (navigator.serviceWorker.controller && sessionStorage.getItem(DEV_SW_RESET_KEY) !== '1') {
+            sessionStorage.setItem(DEV_SW_RESET_KEY, '1')
+            window.location.reload()
+          }
+        } catch (error) {
+          console.warn('Dev service worker cleanup failed', error)
+        }
+      }
+
+      void resetDevServiceWorker()
+    }
+
     void fetch('/api/healthz/warmup', {
       credentials: 'include',
       cache: 'no-store',

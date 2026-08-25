@@ -150,6 +150,26 @@ const STAGES: Stage[] = [
   { id: 'delivered', label: 'Delivered', icon: 'DL' },
 ]
 
+const PENDING_3D_IMAGE_KEY = 'bb-pending-3d-image-url'
+const VIEWER_CAD_FILE_KEY = 'bb-viewer-cad-file'
+
+function readPending3DImageUrl() {
+  try {
+    return sessionStorage.getItem(PENDING_3D_IMAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+function readViewerCadFile() {
+  try {
+    const raw = sessionStorage.getItem(VIEWER_CAD_FILE_KEY)
+    return raw ? JSON.parse(raw) as CadFile : null
+  } catch {
+    return null
+  }
+}
+
 const ProjectContext = createContext<ProjectContextValue | null>(null)
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
@@ -163,13 +183,33 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [tryonFolders, setTryonFolders] = useState<GalleryFolder[]>([])
   const [pendingMagicReference, setPendingMagicReference] = useState<GalleryImage | null>(null)
   const [pendingEditResult, setPendingEditResult] = useState<GalleryImage | null>(null)
-  const [pending3DImageUrl, setPending3DImageUrl] = useState<string | null>(null)
+  const [pending3DImageUrl, setPending3DImageUrlState] = useState<string | null>(() => readPending3DImageUrl())
   const [cadFiles, setCadFiles] = useState<CadFile[]>([])
-  const [viewerCadFile, setViewerCadFile] = useState<CadFile | null>(null)
+  const [viewerCadFile, setViewerCadFileState] = useState<CadFile | null>(() => readViewerCadFile())
   const aiGeneratedImages = useMemo(
     () => aiGeneratedFolders.flatMap(folder => folder.images.map(image => ({ ...image, source: 'ai' as const }))),
     [aiGeneratedFolders],
   )
+
+  const setPending3DImageUrl = useCallback((url: string | null) => {
+    setPending3DImageUrlState(url)
+    try {
+      if (url) sessionStorage.setItem(PENDING_3D_IMAGE_KEY, url)
+      else sessionStorage.removeItem(PENDING_3D_IMAGE_KEY)
+    } catch {
+      // Ignore storage quota/privacy failures; the in-memory handoff still works.
+    }
+  }, [])
+
+  const setViewerCadFile = useCallback((file: CadFile | null) => {
+    setViewerCadFileState(file)
+    try {
+      if (file) sessionStorage.setItem(VIEWER_CAD_FILE_KEY, JSON.stringify(file))
+      else sessionStorage.removeItem(VIEWER_CAD_FILE_KEY)
+    } catch {
+      // Ignore storage quota/privacy failures; the in-memory handoff still works.
+    }
+  }, [])
 
   const setActiveProject = (id: string) => {
     setActiveProjectState(projects.find(p => p.id === id) || null)
