@@ -560,7 +560,7 @@ router.post("/ai/tryon", async (req, res): Promise<void> => {
 
     const model = getOpenRouterImageModel();
 
-    const openRouterRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const openRouterRes = await fetch("https://openrouter.ai/api/v1/images", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -570,22 +570,18 @@ router.post("/ai/tryon", async (req, res): Promise<void> => {
       },
       body: JSON.stringify({
         model,
-        modalities: ["image", "text"],
-        image_config: {
-          aspect_ratio: "3:4",
-          image_size: "1K",
-        },
-        messages: [{
-          role: "user",
-          content: [
-            // Jewellery image FIRST — generation models weight earlier tokens more heavily
-            { type: "text",      text: "JEWELLERY REFERENCE IMAGE (copy this piece exactly):" },
-            { type: "image_url", image_url: { url: jewelleryImage, detail: "high" } },
-            { type: "text",      text: "\nPERSON PHOTO (place the jewellery above on this person):" },
-            { type: "image_url", image_url: { url: personPhoto,   detail: "high" } },
-            { type: "text",      text: "\n" + compositingPrompt },
-          ],
-        }],
+        prompt: [
+          "REFERENCE IMAGE 1 is the jewellery. Copy that piece exactly.",
+          "REFERENCE IMAGE 2 is the person photo. Keep the person and scene unchanged.",
+          compositingPrompt,
+        ].join("\n\n"),
+        n: 1,
+        resolution: "1K",
+        aspect_ratio: "3:4",
+        input_references: [
+          { type: "image_url", image_url: { url: jewelleryImage } },
+          { type: "image_url", image_url: { url: personPhoto } },
+        ],
       }),
       signal: AbortSignal.timeout(300_000),
     });

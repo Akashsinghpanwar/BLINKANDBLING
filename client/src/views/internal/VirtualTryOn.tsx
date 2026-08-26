@@ -39,6 +39,21 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
+async function prepareTryOnImage(src: string) {
+  if (!src.startsWith('data:image/')) return src
+
+  const image = await loadImage(src)
+  const maxDimension = 1600
+  const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
+  canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('Could not prepare the uploaded image')
+  context.drawImage(image, 0, 0, canvas.width, canvas.height)
+  return canvas.toDataURL('image/webp', 0.9)
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
@@ -163,7 +178,7 @@ function PhotoThumb({
 
   const handleFile = async (file: File | undefined) => {
     if (!file) return
-    onPhoto(await fileToBase64(file))
+    onPhoto(await prepareTryOnImage(await fileToBase64(file)))
   }
 
   return (
@@ -224,7 +239,7 @@ function JewelleryPicker({
 
   const handleUpload = async (file: File | undefined) => {
     if (!file) return
-    onJewellery(await fileToBase64(file))
+    onJewellery(await prepareTryOnImage(await fileToBase64(file)))
   }
 
   return (
@@ -430,11 +445,19 @@ export default function VirtualTryOn() {
     setFramesErr('')
 
     try {
+      const [preparedPersonPhoto, preparedJewellery] = await Promise.all([
+        prepareTryOnImage(personPhoto),
+        prepareTryOnImage(jewellery),
+      ])
       const res = await fetch('/api/ai/tryon', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ personPhoto, jewelleryImage: jewellery, jewelleryType }),
+        body: JSON.stringify({
+          personPhoto: preparedPersonPhoto,
+          jewelleryImage: preparedJewellery,
+          jewelleryType,
+        }),
       })
       const data = await res.json().catch(() => ({})) as { resultUrl?: string; error?: string }
       if (!res.ok || !data.resultUrl) throw new Error(data.error || 'Try-on generation failed')
