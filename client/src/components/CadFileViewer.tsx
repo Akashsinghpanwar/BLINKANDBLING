@@ -261,6 +261,11 @@ function fileToDataUrl(file: File): Promise<string> {
   })
 }
 
+function withViewerRetry(url: string, retryKey: number) {
+  if (retryKey === 0 || url.startsWith('data:') || url.startsWith('blob:')) return url
+  return `${url}${url.includes('?') ? '&' : '?'}viewerRetry=${retryKey}`
+}
+
 function toUploadedCadFile(file: CadFile): UploadedCadFile {
   const extension = (file.extension || file.name.split('.').pop() || '').toLowerCase()
   return {
@@ -634,7 +639,10 @@ export default function CadFileViewer({ canDelete = true }: CadFileViewerProps) 
       ) : file?.previewKind && file.previewKind !== 'unsupported' ? (
         <div style={{ width: '100%', height: '100%' }}>
           <ViewerRenderErrorBoundary resetKey={`${viewKey}:${file.previewKind}:${file.url}`} fileName={file.name}>
-            <ViewerCanvas key={viewKey} file={file} />
+            <ViewerCanvas
+              key={viewKey}
+              file={{ ...file, url: withViewerRetry(file.url, viewKey) }}
+            />
           </ViewerRenderErrorBoundary>
         </div>
       ) : (

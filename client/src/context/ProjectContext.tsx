@@ -133,6 +133,7 @@ interface ProjectContextValue {
   setViewerCadFile: (file: CadFile | null) => void
   refreshCadFiles: (projectId?: string) => Promise<void>
   saveCadFile: (file: Omit<CadFile, 'id' | 'createdAt' | 'updatedAt'>) => Promise<CadFile>
+  saveGeneratedCadFile: (taskId: string, name: string) => Promise<CadFile>
   deleteCadFile: (id: string) => Promise<void>
   sendImageToCadFiles: (image: GalleryImage) => Promise<void>
 }
@@ -464,6 +465,23 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     return saved
   }
 
+  const saveGeneratedCadFile = async (taskId: string, name: string) => {
+    const res = await fetch(`/api/cad/image-to-3d/save/${encodeURIComponent(taskId)}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        projectId: portalProject?.id || activeProject?.id,
+      }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data?.error || 'Could not save generated CAD file')
+    const saved = data.file as CadFile
+    setCadFiles(prev => [saved, ...prev.filter(item => item.id !== saved.id)])
+    return saved
+  }
+
   const deleteCadFile = async (id: string) => {
     const queryProjectId = portalProject?.id || activeProject?.id || ''
     const res = await fetch(`/api/cad/files/${id}${queryProjectId ? `?projectId=${encodeURIComponent(queryProjectId)}` : ''}`, {
@@ -558,6 +576,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       setViewerCadFile,
       refreshCadFiles,
       saveCadFile,
+      saveGeneratedCadFile,
       deleteCadFile,
       sendImageToCadFiles,
     }}>

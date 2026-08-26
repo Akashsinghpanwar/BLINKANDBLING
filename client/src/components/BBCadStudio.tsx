@@ -95,8 +95,10 @@ interface Props {
 }
 
 export default function BBCadStudio({ onOpenInViewer }: Props) {
-  const { saveCadFile, setViewerCadFile, pending3DImageUrl, setPending3DImageUrl } = useProjects()
+  const { saveGeneratedCadFile, setViewerCadFile, pending3DImageUrl, setPending3DImageUrl } = useProjects()
   const { add3DJob, removeJob } = useBackgroundJobs()
+  const savedTaskIdsRef = useRef<Set<string>>(new Set())
+  const savingTaskIdsRef = useRef<Set<string>>(new Set())
 
   // Subscribe to 3D jobs in the global store
   const active3DJob = useBackgroundJobs(s =>
@@ -112,6 +114,7 @@ export default function BBCadStudio({ onOpenInViewer }: Props) {
   const [taskId, setTaskId] = useState<string | null>(null)
   const [taskResult, setTaskResult] = useState<TaskResult | null>(null)
   const [errorMsg, setErrorMsg] = useState('')
+  const [savingToViewer, setSavingToViewer] = useState(false)
 
   // Revoke preview blob URL on unmount
   useEffect(() => {
@@ -268,41 +271,45 @@ export default function BBCadStudio({ onOpenInViewer }: Props) {
     await startGeneration(imageFile)
   }
 
-  const saveAndView = async (url: string) => {
+  const glbUrl = taskResult?.model_urls?.glb
+
+  const saveAndView = useCallback(async (options?: { auto?: boolean }) => {
+    const generationId = taskResult?.id || taskId
+    if (!generationId) {
+      toast.error('Generated model task was not found')
+      return
+    }
+    if (savedTaskIdsRef.current.has(generationId) || savingTaskIdsRef.current.has(generationId)) {
+      onOpenInViewer?.()
+      return
+    }
+
     const baseName = imageFile?.name.replace(/\.[^.]+$/, '') || 'model'
     const name = `${baseName}_generated.glb`
-    try {
-      // Download the GLB and convert to a data URL so it is stored permanently.
-      // The proxy URL (/api/cad/image-to-3d/result/:taskId) re-fetches from Meshy
-      // on every request; Meshy tasks expire, causing 404s when viewing from gallery.
-      const glbRes = await fetch(url)
-      if (!glbRes.ok) throw new Error('Could not download the generated 3D model')
-      const blob = await glbRes.blob()
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(reader.result as string)
-        reader.onerror = reject
-        reader.readAsDataURL(blob)
-      })
+    savingTaskIdsRef.current.add(generationId)
+    setSavingToViewer(true)
 
-      const saved = await saveCadFile({
-        name,
-        url: dataUrl,
-        extension: 'glb',
-        mimeType: 'model/gltf-binary',
-        size: blob.size,
-        source: 'generated-3d',
-      })
+    try {
+      const saved = await saveGeneratedCadFile(generationId, name)
       setViewerCadFile(saved)
-      toast.success('Saved to CAD files')
+      savedTaskIdsRef.current.add(generationId)
+      removeJob(generationId)
+      toast.success(options?.auto ? '3D model saved - opening viewer' : 'Saved to CAD files')
       onOpenInViewer?.()
-    } catch {
-      toast.error('Could not save CAD file')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not save CAD file')
+    } finally {
+      savingTaskIdsRef.current.delete(generationId)
+      setSavingToViewer(false)
     }
-  }
+  }, [imageFile?.name, onOpenInViewer, removeJob, saveGeneratedCadFile, setViewerCadFile, taskId, taskResult?.id])
+
+  useEffect(() => {
+    if (genState !== 'done' || !glbUrl) return
+    void saveAndView({ auto: true })
+  }, [genState, glbUrl, saveAndView])
 
   const isRunning = genState === 'uploading' || genState === 'processing'
-  const glbUrl = taskResult?.model_urls?.glb
   const progress = taskResult?.progress ?? (genState === 'uploading' ? 8 : 18)
 
   return (
@@ -738,8 +745,15 @@ export default function BBCadStudio({ onOpenInViewer }: Props) {
 
             <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 10 }}>
               {glbUrl && (
-                <button type="button" className="bbcad-primary" onClick={() => saveAndView(glbUrl)} style={{ padding: '0 20px' }}>
-                  <Box size={15} /> Open in CAD viewer
+                <button
+                  type="button"
+                  className="bbcad-primary"
+                  disabled={savingToViewer}
+                  onClick={() => saveAndView()}
+                  style={{ padding: '0 20px' }}
+                >
+                  {savingToViewer ? <Loader2 size={15} className="bbcad-spin" /> : <Box size={15} />}
+                  {savingToViewer ? 'Opening viewer' : 'Open in CAD viewer'}
                 </button>
               )}
               {glbUrl && (
