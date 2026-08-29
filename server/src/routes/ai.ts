@@ -433,6 +433,46 @@ function getPublicRequestOrigin(req: { protocol: string; get(name: string): stri
   return `${req.protocol}://${host}`;
 }
 
+async function resolveModelImageReference(
+  req: { protocol: string; get(name: string): string | undefined },
+  source: string,
+) {
+  const image = source.trim().replace(/&amp;/g, "&");
+  if (/^data:image\/[^;]+;base64,/i.test(image) || /^https?:\/\//i.test(image)) return image;
+  if (image.startsWith("//")) return `${req.protocol}:${image}`;
+
+  if (/^blob:/i.test(image)) {
+    throw new Error("Browser blob image URLs cannot be sent to virtual try-on. Please re-upload the image and try again.");
+  }
+
+  if (!image.startsWith("/")) {
+    throw new Error("Virtual try-on images must be base64 data URLs, HTTP/HTTPS URLs, or same-app /api image URLs.");
+  }
+
+  const host = req.get("host");
+  if (!host) throw new Error("Could not resolve local image URL for virtual try-on.");
+
+  const response = await fetch(`${req.protocol}://${host}${image}`, {
+    headers: {
+      "Cookie": req.get("cookie") || "",
+      "User-Agent": "BlinkAndBling/try-on-image-resolver",
+    },
+    signal: AbortSignal.timeout(20_000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Could not load virtual try-on image (${response.status}).`);
+  }
+
+  const mimeType = (response.headers.get("content-type") || "image/png").split(";")[0]?.trim() || "image/png";
+  if (!mimeType.startsWith("image/")) {
+    throw new Error(`Virtual try-on expected an image but received ${mimeType}.`);
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  return `data:${mimeType};base64,${buffer.toString("base64")}`;
+}
+
 async function createPublicFrameUrl(req: { protocol: string; get(name: string): string | undefined }, image: string) {
   if (/^https:\/\//i.test(image) && !/localhost|127\.|0\.0\.0\.0/i.test(image)) return image;
 
@@ -530,10 +570,15 @@ router.post("/ai/tryon", async (req, res): Promise<void> => {
       return;
     }
 
+    const [modelJewelleryImage, modelPersonPhoto] = await Promise.all([
+      resolveModelImageReference(req, jewelleryImage),
+      resolveModelImageReference(req, personPhoto),
+    ]);
+
     // ── Step 1: get a forensic text description of the jewellery ──────────────
     // Running in parallel is not possible here because the description is needed
     // before building the compositing prompt, but the call is fast (<2 s).
-    const jewelleryDescription = await describeJewellery(jewelleryImage, apiKey);
+    const jewelleryDescription = await describeJewellery(modelJewelleryImage, apiKey);
     logger.info({ jewelleryType, descriptionLength: jewelleryDescription.length }, "Jewellery description complete");
 
     // ── Step 2: build the compositing prompt with description locked in ───────
@@ -579,8 +624,8 @@ router.post("/ai/tryon", async (req, res): Promise<void> => {
         resolution: "1K",
         aspect_ratio: "3:4",
         input_references: [
-          { type: "image_url", image_url: { url: jewelleryImage } },
-          { type: "image_url", image_url: { url: personPhoto } },
+          { type: "image_url", image_url: { url: modelJewelleryImage } },
+          { type: "image_url", image_url: { url: modelPersonPhoto } },
         ],
       }),
       signal: AbortSignal.timeout(300_000),
@@ -822,8 +867,13 @@ router.post("/ai/tryon/frames", async (req, res): Promise<void> => {
   }
 
   try {
+    const [modelTryonImage, modelJewelleryImage] = await Promise.all([
+      resolveModelImageReference(req, tryonImage),
+      resolveModelImageReference(req, jewelleryImage),
+    ]);
+
     // Step 1: forensic jewellery description for cross-frame consistency
-    const jewelleryDescription = await describeJewellery(jewelleryImage, apiKey);
+    const jewelleryDescription = await describeJewellery(modelJewelleryImage, apiKey);
     logger.info(
       { jewelleryType, descriptionLength: jewelleryDescription.length },
       "Jewellery described for motion sequence",
@@ -832,7 +882,7 @@ router.post("/ai/tryon/frames", async (req, res): Promise<void> => {
     // Step 2: generate all 5 motion frames in parallel (frame 1 = tryonImage already exists)
     const motionResults = await Promise.allSettled(
       MOTION_FRAMES.map(motion =>
-        generateMotionFrame(tryonImage, jewelleryImage, jewelleryType, jewelleryDescription, apiKey, motion),
+        generateMotionFrame(modelTryonImage, modelJewelleryImage, jewelleryType, jewelleryDescription, apiKey, motion),
       ),
     );
 

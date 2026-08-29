@@ -20,13 +20,17 @@ const JEWELLERY_TYPES: { value: JewelleryType; label: string; icon: typeof Gem; 
   { value: 'bangle',    label: 'Bangle',    icon: CircleDot, hint: 'wrist' },
 ]
 
-function fileToBase64(file: File): Promise<string> {
+function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(reader.result as string)
     reader.onerror = reject
-    reader.readAsDataURL(file)
+    reader.readAsDataURL(blob)
   })
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return blobToDataUrl(file)
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -40,9 +44,17 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 }
 
 async function prepareTryOnImage(src: string) {
-  if (!src.startsWith('data:image/')) return src
+  const cleanSrc = src.trim().replace(/&amp;/g, '&')
 
-  const image = await loadImage(src)
+  if (cleanSrc.startsWith('blob:')) {
+    const response = await fetch(cleanSrc)
+    if (!response.ok) throw new Error('Could not prepare the selected image')
+    return prepareTryOnImage(await blobToDataUrl(await response.blob()))
+  }
+
+  if (!cleanSrc.startsWith('data:image/')) return cleanSrc
+
+  const image = await loadImage(cleanSrc)
   const maxDimension = 1600
   const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight))
   const canvas = document.createElement('canvas')
@@ -484,11 +496,15 @@ export default function VirtualTryOn() {
     setFramesErr('')
     setFrames([])
     try {
+      const [preparedTryonImage, preparedJewellery] = await Promise.all([
+        prepareTryOnImage(result),
+        prepareTryOnImage(jewellery),
+      ])
       const res = await fetch('/api/ai/tryon/frames', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tryonImage: result, jewelleryImage: jewellery, jewelleryType }),
+        body: JSON.stringify({ tryonImage: preparedTryonImage, jewelleryImage: preparedJewellery, jewelleryType }),
       })
       const data = await res.json().catch(() => ({})) as {
         frames?: Array<{ url: string; label: string }>
